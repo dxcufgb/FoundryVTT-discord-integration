@@ -112,7 +112,8 @@ begin
   Output := '';
   TmpFile := ExpandConstant('{tmp}\capture.txt');
   DeleteFile(TmpFile);
-  Result := Exec(ExpandConstant('{cmd}'), '/C ' + Command + ' > "' + TmpFile + '" 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  { /S keeps every quote inside the command intact; without it cmd strips the first and last quote of a quoted command. }
+  Result := Exec(ExpandConstant('{cmd}'), '/S /C "' + Command + ' > "' + TmpFile + '" 2>&1"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
   if LoadStringsFromFile(TmpFile, Lines) and (GetArrayLength(Lines) > 0) then
     Output := Trim(Lines[0]);
 end;
@@ -134,6 +135,7 @@ begin
     Exit;
   if RunCapture('"' + Exe + '" -p "process.versions.node.split(''.'')[0]"', Major) then
     Result := StrToIntDef(Major, 0) >= 20;
+  Log('Node.js at ' + Exe + ', major version "' + Major + '", acceptable: ' + IntToStr(Integer(Result)));
 end;
 
 { Read KEY=value from an existing .env (upgrade); empty string if absent. }
