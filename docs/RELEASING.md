@@ -2,11 +2,13 @@
 
 Releases are built by GitHub Actions ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) when a **version tag** (`vX.Y.Z`) is pushed, which also happens when a GitHub Release is published with a new tag. The workflow runs the tests, stamps the version from the tag into `package.json`, installs production dependencies, creates the GitHub Release if it does not exist yet (notes taken from the matching `CHANGELOG.md` section) and attaches:
 
-- `foundryvtt-discord-integration-<version>-linux.tar.gz` — bot + dependencies + `deploy/linux` (systemd)
-- `foundryvtt-discord-integration-<version>-windows.zip` — bot + dependencies + `deploy/windows` (Task Scheduler)
-- `SHA256SUMS.txt`
+- `foundryvtt-discord-integration-<version>-linux.tar.gz` — bot + dependencies + `deploy/linux` (interactive installer, systemd unit)
+- `install.sh` — the Linux installer on its own, for `curl -fsSL …/releases/latest/download/install.sh | sudo bash` (it downloads the bundle)
+- `foundryvtt-discord-integration-<version>-windows.zip` — bot + dependencies + `deploy/windows` (Task Scheduler scripts)
+- `foundryvtt-discord-integration-<version>-setup.exe` — Windows installer built with Inno Setup from `deploy/windows/installer.iss` (a second job on a Windows runner)
+- `SHA256SUMS.txt` and `SHA256SUMS-setup.txt`
 
-The bundles contain no native code, so one build serves both platforms.
+The bundles contain no native code, so one build serves both platforms. The Node.js version the Windows installer downloads when none is present is the `NodeVersion` define at the top of `installer.iss`; bump it now and then to the current LTS.
 
 ## Procedure
 

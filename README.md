@@ -26,17 +26,21 @@ Everything is configured from Discord with slash commands. Configuration command
 
 ## Installation
 
-Short version (full instructions with screenshots-level detail in **[docs/INSTALL.md](docs/INSTALL.md)**):
+Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**):
 
-1. Create a Discord application and bot at <https://discord.com/developers/applications>, copy the **bot token** and the **application ID**, and invite the bot to your server with the `bot` and `applications.commands` scopes.
-2. Download the latest release bundle for your platform from the [Releases page](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and extract it on the machine that runs Foundry.
-3. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` and `FOUNDRY_DATA_PATH`.
-4. Install it as a service:
-   - **Linux:** `sudo ./deploy/linux/install.sh --user <user that runs Foundry>`
-   - **Windows:** in an elevated PowerShell, `.\deploy\windows\install-task.ps1`
-5. In Discord, run `/channel set type:default` in the channel where messages should go, then fine-tune with the commands below.
+**Linux** (on the machine that runs Foundry):
 
-Running from source instead of a release bundle: `npm ci`, fill in `.env`, `npm start`.
+```
+curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash
+```
+
+The guided installer checks for Node.js, finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, and installs a systemd service. It also has a `--non-interactive` mode for scripted installs.
+
+**Windows:** download `foundryvtt-discord-integration-<version>-setup.exe` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard installs Node.js if needed, asks the same questions and registers a Scheduled Task that runs the bot at boot. Silent installs take the answers as `/DiscordToken=… /ClientId=…` parameters.
+
+Then, in Discord, run `/channel set type:default` in the channel where messages should go, and fine-tune with the commands below.
+
+Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `npm start`.
 
 ## Commands
 
@@ -74,7 +78,7 @@ All settings are environment variables, read from `.env` (see [`.env.example`](.
 | `TIMEZONE` | `UTC` | Default timezone for restart windows (IANA name, e.g. `Europe/Stockholm`). |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 
-`npm run check-config` validates `.env`, probes Foundry and counts the installed packages without touching Discord.
+`npm run check-config` validates `.env`, probes Foundry and counts the installed packages without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
 
 ## Development
 
@@ -84,7 +88,7 @@ npm test            # unit tests (node:test, no extra tooling)
 npm start           # run the bot with the .env in this folder
 ```
 
-Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing and the administrator check on commands. CI runs them on Linux and Windows with Node 20 and 22.
+Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing and the administrator check on commands. CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd, and compiles, silently installs and uninstalls the Windows setup.
 
 Releases: see **[docs/RELEASING.md](docs/RELEASING.md)**.
 

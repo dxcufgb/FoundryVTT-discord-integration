@@ -17,24 +17,65 @@ If you prefer to build the invite link yourself:
 https://discord.com/oauth2/authorize?client_id=<APPLICATION ID>&scope=bot+applications.commands&permissions=274878057472
 ```
 
-## 2. Get the bot files
+## 2. Install on Linux (guided installer)
 
-Download the bundle for your platform from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest):
+On the machine that runs Foundry, run the installer. It downloads the latest release, checks for Node.js 20+ (and offers to install it), finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, writes the configuration, and installs and starts a systemd service:
 
-- `foundryvtt-discord-integration-<version>-linux.tar.gz`
-- `foundryvtt-discord-integration-<version>-windows.zip`
+```
+curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash
+```
 
-They contain the bot with all dependencies, so no `npm install` is needed. Extract to a permanent location, for example `/opt/foundryvtt-discord-integration` or `C:\FoundryBot`.
+Press Enter to accept a suggested value in `[brackets]`. If you downloaded the Linux bundle instead, extract it and run `sudo ./deploy/linux/install.sh` from the extracted folder; the questions are the same.
 
-Alternatively clone the repository and run `npm ci --omit=dev`.
+Unattended installs (scripts, Ansible, CI) pass everything on the command line:
 
-## 3. Configure
+```
+sudo ./deploy/linux/install.sh --non-interactive --token <bot token> --client-id <application id> \
+  --data-path /home/foundry/foundrydata --user foundry [--guild-id <server id>] \
+  [--url http://localhost:30000] [--timezone Europe/Stockholm] [--interval 30] [--no-start]
+```
 
-Copy `.env.example` to `.env` and fill it in. The important ones:
+Afterwards:
+
+```
+sudo systemctl status foundryvtt-discord-bot     # running?
+sudo journalctl -u foundryvtt-discord-bot -f     # live log
+sudo nano /opt/foundryvtt-discord-integration/.env && sudo systemctl restart foundryvtt-discord-bot
+sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --uninstall [--purge]
+```
+
+Running the installer again upgrades in place and keeps your `.env` and `data/` folder. If Foundry itself runs under systemd, you can make the bot wait for it by adding `After=foundry.service` (your unit's name) to `/etc/systemd/system/foundryvtt-discord-bot.service`.
+
+## 3. Install on Windows (setup wizard)
+
+Download `foundryvtt-discord-integration-<version>-setup.exe` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard:
+
+1. Checks for Node.js 20 or newer and offers to download and install Node.js LTS if it is missing.
+2. Asks for the Discord bot token, application ID and (optional) server ID.
+3. Asks for the Foundry URL, Foundry's user data folder (pre-filled with `%LOCALAPPDATA%\FoundryVTT` when it exists), the timezone (`auto` uses the computer's) and how often to check Foundry.
+4. Installs the bot under `C:\Program Files\FoundryVTT Discord integration`, writes the configuration to `C:\ProgramData\FoundryVTT Discord integration\.env` and registers a Scheduled Task *FoundryVTT Discord integration* that starts the bot at boot (as SYSTEM, without anyone logging in) and restarts it if it stops.
+
+The Start menu folder has shortcuts to **Edit configuration** (stop and start the task afterwards in Task Scheduler), **Check configuration**, and **Run bot in a window (log)** for watching the log live. Running a newer setup upgrades in place and keeps the configuration; uninstalling asks whether to delete it.
+
+Silent install, for scripts:
+
+```
+setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DiscordToken=<token> /ClientId=<application id> [/GuildId=<server id>] ^
+  [/FoundryUrl=http://localhost:30000] [/DataPath="C:\Users\me\AppData\Local\FoundryVTT"] [/Timezone=Europe/Stockholm] [/Interval=30]
+```
+
+and `unins000.exe /VERYSILENT [/PurgeConfig=1]` to remove it again.
+
+If you prefer not to use the setup wizard, the `-windows.zip` bundle contains the same files plus `deploy\windows\install-task.ps1`, which registers the scheduled task from an elevated PowerShell (`-RunAsUser` runs it as a specific account instead of SYSTEM). [NSSM](https://nssm.cc) also works if you want a real Windows service.
+
+## 4. Configuration reference
+
+All settings live in `.env` (`/opt/foundryvtt-discord-integration/.env` on Linux, `C:\ProgramData\FoundryVTT Discord integration\.env` on Windows). The installers write it for you; this is what the values mean:
 
 ```
 DISCORD_TOKEN=<bot token>
 DISCORD_CLIENT_ID=<application id>
+DISCORD_GUILD_ID=<server id, optional>
 FOUNDRY_URL=http://localhost:30000
 FOUNDRY_DATA_PATH=<Foundry user data folder>
 TIMEZONE=Europe/Stockholm
@@ -48,45 +89,11 @@ TIMEZONE=Europe/Stockholm
 | Windows | `C:\Users\<user>\AppData\Local\FoundryVTT` |
 | Docker (felddy image) | the folder mounted at `/data` |
 
-Optionally set `DISCORD_GUILD_ID` to your server's ID while setting things up: slash commands then appear immediately instead of after up to an hour. (Right-click your server → *Copy Server ID*; needs *Developer Mode* under Discord's *Advanced* settings.)
+`DISCORD_GUILD_ID` makes slash commands appear immediately instead of after up to an hour. (Right-click your server → *Copy Server ID*; needs *Developer Mode* under Discord's *Advanced* settings.) The remaining variables are described in the [README](../README.md#configuration).
 
-Check it: `node scripts/check-config.js` (or `npm run check-config`) prints the configuration, probes Foundry and counts installed systems and modules.
+Check a configuration by hand: `node scripts/check-config.js [--env <file>]` validates it, probes Foundry and counts the installed systems and modules without touching Discord.
 
-## 4a. Linux: run as a systemd service
-
-```
-cd /opt/foundryvtt-discord-integration
-sudo ./deploy/linux/install.sh --user foundry
-```
-
-Replace `foundry` with the Linux user that runs Foundry so the bot can read Foundry's data folder. The script checks Node.js, creates `.env` from the example if missing, verifies the configuration, installs `/etc/systemd/system/foundryvtt-discord-bot.service` and starts it.
-
-```
-sudo systemctl status foundryvtt-discord-bot     # running?
-sudo journalctl -u foundryvtt-discord-bot -f     # live log
-sudo systemctl restart foundryvtt-discord-bot    # after editing .env
-sudo ./deploy/linux/uninstall.sh                 # remove the service (keeps files)
-```
-
-If Foundry itself runs under systemd, the bot's unit can wait for it: add `After=foundry.service` (your Foundry unit's name) under `[Unit]` in the installed unit file.
-
-## 4b. Windows: run as a scheduled task
-
-Open **PowerShell as Administrator** in the bot folder:
-
-```
-Set-ExecutionPolicy -Scope Process Bypass
-.\deploy\windows\install-task.ps1
-```
-
-This registers a Task Scheduler task *FoundryVTT Discord integration* that starts the bot at boot (as SYSTEM, without anyone logged in) and restarts it if it stops. Pass `-RunAsUser "COMPUTER\name"` to run it as the account that runs Foundry if Foundry's data folder is not readable by SYSTEM.
-
-- See it in **Task Scheduler** (taskschd.msc), or `Get-ScheduledTask -TaskName "FoundryVTT Discord integration"`.
-- After editing `.env`: `Stop-ScheduledTask` then `Start-ScheduledTask` with that task name.
-- To watch the log, run `deploy\windows\start.bat` in a terminal instead (stop the task first so two copies are not running).
-- `.\deploy\windows\uninstall-task.ps1` removes the task and keeps the files.
-
-If you would rather have a real Windows service, [NSSM](https://nssm.cc) works well: `nssm install FoundryDiscordBot "C:\Program Files\nodejs\node.exe" "src\index.js"` with the bot folder as the startup directory.
+Running from source instead of an installer: `npm ci`, copy `.env.example` to `.env`, fill it in, `npm start`.
 
 ## 5. Set up channels in Discord
 
@@ -102,12 +109,13 @@ The bot must be able to **view** and **send messages** in each chosen channel (c
 
 ## Upgrading
 
-Extract the new bundle over the old folder (or `git pull && npm ci --omit=dev`), keep your `.env` and `data/` folder, and restart the service or task. `data/state.json` remembers your channels, windows and which updates were already announced.
+Run the installer for the new version (the Linux one-liner, or the new `setup.exe`). Both upgrade in place and keep `.env` and the data folder, whose `state.json` remembers your channels, windows and which updates were already announced.
 
 ## Troubleshooting
 
-- **Slash commands do not appear**: global commands can take up to an hour. Set `DISCORD_GUILD_ID` for instant registration, or run `npm run register-commands`. The bot must have been invited with the `applications.commands` scope.
+- **Slash commands do not appear**: global commands can take up to an hour. Set `DISCORD_GUILD_ID` for instant registration, or run `node scripts/register-commands.js`. The bot must have been invited with the `applications.commands` scope.
 - **"Only server administrators can use this command"**: configuration commands require the *Administrator* permission in that server.
 - **Foundry shows as down but is running**: check `FOUNDRY_URL`. Use the local address (`http://localhost:30000`), not a public hostname behind a proxy that might need authentication. `curl http://localhost:30000/api/status` should return JSON.
 - **No update messages**: `FOUNDRY_DATA_PATH` must point at the user data folder and be readable by the user the bot runs as. `/updates list` shows what the bot sees. The first scan is silent on purpose.
-- **Nothing is posted**: `/channel list` shows the routing; `/test-message` tests a channel. Look at the log (`journalctl` or `start.bat`).
+- **Nothing is posted**: `/channel list` shows the routing; `/test-message` tests a channel. Look at the log (`journalctl -u foundryvtt-discord-bot` on Linux, *Run bot in a window* from the Start menu on Windows).
+- **Windows: the task is there but the bot is not running**: open Task Scheduler and look at the task's *Last Run Result*; run *Check configuration* from the Start menu. If Node.js was installed during setup and the bot still does not start, reboot once so the new PATH is picked up by the task.
