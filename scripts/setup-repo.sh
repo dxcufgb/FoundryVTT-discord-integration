@@ -74,11 +74,26 @@ gh repo edit "$FULL" \
   --enable-issues --enable-projects --enable-wiki \
   --enable-squash-merge --squash-merge-commit-message default \
   --enable-merge-commit=false --enable-rebase-merge=false \
-  --enable-auto-merge=false --delete-branch-on-merge >/dev/null
+  --enable-auto-merge --delete-branch-on-merge \
+  --add-topic foundryvtt --add-topic foundry-vtt --add-topic discord-bot --add-topic discord-js >/dev/null
+gh api -X PATCH "repos/$FULL" -F allow_update_branch=false \
+  -f squash_merge_commit_title=COMMIT_OR_PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES >/dev/null
+
+# Security: secret scanning + push protection, Dependabot alerts and security updates,
+# private vulnerability reporting, CodeQL default setup.
+echo "Applying security settings"
+gh api -X PATCH "repos/$FULL" --input - >/dev/null <<'JSON'
+{"security_and_analysis": {"secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "enabled"}}}
+JSON
+gh api -X PUT "repos/$FULL/vulnerability-alerts" >/dev/null
+gh api -X PUT "repos/$FULL/automated-security-fixes" >/dev/null
+gh api -X PUT "repos/$FULL/private-vulnerability-reporting" >/dev/null
+gh api -X PATCH "repos/$FULL/code-scanning/default-setup" -f state=configured -f query_suite=default >/dev/null || \
+  echo "  CodeQL default setup could not be enabled (needs a public repository)"
 
 # --- 4. Ruleset "Protect main" -------------------------------------------------------------
 RULESET_FILE="$WORK/.github/ruleset-protect-main.json"
-EXISTING_ID="$(gh api "repos/$FULL/rulesets" --jq '.[] | select(.name=="Protect main") | .id' 2>/dev/null | head -n1 || true)"
+EXISTING_ID="$(gh api "repos/$FULL/rulesets" --jq '.[] | select(.name | ascii_downcase == "protect main") | .id' 2>/dev/null | head -n1 || true)"
 if [[ -n "$EXISTING_ID" ]]; then
   echo "Updating ruleset 'Protect main' ($EXISTING_ID)"
   gh api -X PUT "repos/$FULL/rulesets/$EXISTING_ID" --input "$RULESET_FILE" >/dev/null
