@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildConfig, DEFAULTS, parseEnv } from "../src/config.js";
+import fs from "node:fs";
+import path from "node:path";
+import { buildConfig, DEFAULTS, parseEnv, PROJECT_ROOT, resolveEnvFile } from "../src/config.js";
+import { tmpDir } from "./helpers.js";
 
 const minimal = { DISCORD_TOKEN: "t", DISCORD_CLIENT_ID: "1" };
 
@@ -52,4 +55,27 @@ test("buildConfig rejects a poll interval under 5 seconds", () => {
 test("buildConfig can skip the Discord requirement for offline tools", () => {
   const c = buildConfig({}, { requireDiscord: false });
   assert.equal(c.discord.token, undefined);
+});
+
+test("resolveEnvFile prefers --env, then the environment variable, then the local file, then ProgramData on Windows", () => {
+  const local = path.join(PROJECT_ROOT, ".env");
+  assert.equal(resolveEnvFile(["node", "x", "--env", "/tmp/custom.env"], {}, "linux"), path.resolve("/tmp/custom.env"));
+  assert.equal(resolveEnvFile(["node", "x"], { FOUNDRY_DISCORD_ENV_FILE: "/tmp/from-env" }, "linux"), path.resolve("/tmp/from-env"));
+  assert.equal(resolveEnvFile(["node", "x"], {}, "linux"), local);
+
+  const programData = tmpDir();
+  assert.equal(resolveEnvFile(["node", "x"], { ProgramData: programData }, "win32"), local, "no shared file yet");
+  if (!fs.existsSync(local)) {
+    const shared = path.join(programData, "FoundryVTT Discord integration", ".env");
+    fs.mkdirSync(path.dirname(shared), { recursive: true });
+    fs.writeFileSync(shared, "DISCORD_TOKEN=x\n");
+    assert.equal(resolveEnvFile(["node", "x"], { ProgramData: programData }, "win32"), shared);
+    assert.equal(resolveEnvFile(["node", "x"], { ProgramData: programData }, "linux"), local, "ProgramData is Windows only");
+  }
+});
+
+test("a relative BOT_DATA_DIR is resolved against the .env file's folder", () => {
+  const c = buildConfig({ ...minimal, BOT_DATA_DIR: "data" }, { baseDir: "/srv/bot-config" });
+  assert.equal(c.botDataDir, path.resolve("/srv/bot-config", "data"));
+  assert.equal(buildConfig({ ...minimal, BOT_DATA_DIR: "/var/lib/bot" }).botDataDir, path.resolve("/var/lib/bot"));
 });

@@ -9,10 +9,11 @@
 #      or on GitHub: Releases -> "Draft a new release" -> create tag v1.2.3 -> Publish,
 #      or Actions -> "Release bot" -> "Run workflow" -> enter v1.2.3.
 #   3. This workflow runs the tests, creates the release if it does not exist yet
-#      (notes taken from the CHANGELOG.md section), and attaches ready-to-run
-#      bundles (dependencies included) for Linux and Windows:
-#        foundryvtt-discord-integration-<version>-linux.tar.gz
-#        foundryvtt-discord-integration-<version>-windows.zip
+#      (notes taken from the CHANGELOG.md section), and attaches:
+#        foundryvtt-discord-integration-<version>-linux.tar.gz   bundle + interactive installer
+#        install.sh                                               the Linux installer alone (curl | sudo bash)
+#        foundryvtt-discord-integration-<version>-windows.zip     bundle + Task Scheduler scripts
+#        foundryvtt-discord-integration-<version>-setup.exe       Windows installer (Inno Setup)
 #
 # The version number in package.json is taken from the tag.
 # See docs/RELEASING.md for the full procedure.
@@ -35,6 +36,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Check out code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -83,9 +87,18 @@ jobs:
           mkdir -p "dist/windows/$NAME/deploy" && cp -R deploy/windows "dist/windows/$NAME/deploy/"
           (cd dist/windows && zip -qr "../$NAME-windows.zip" "$NAME")
 
-          ls -la dist/*.tar.gz dist/*.zip
-          sha256sum dist/*.tar.gz dist/*.zip > dist/SHA256SUMS.txt
+          cp deploy/linux/install.sh dist/install.sh
+          ls -la dist/*.tar.gz dist/*.zip dist/install.sh
+          sha256sum dist/*.tar.gz dist/*.zip dist/install.sh > dist/SHA256SUMS.txt
           cat dist/SHA256SUMS.txt
+
+      - name: Keep the Windows payload for the installer job
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-payload
+          path: dist/windows/${{ steps.meta.outputs.name }}
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Release notes from CHANGELOG.md
         id: notes
@@ -118,4 +131,36 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/install.sh
             dist/SHA256SUMS.txt
+
+  installer:
+    name: Windows installer
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Fetch the Windows payload
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-payload
+          path: payload
+
+      - name: Compile with Inno Setup
+        shell: pwsh
+        run: |
+          $version = "${{ needs.build.outputs.version }}"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" "/DSourceDir=${{ github.workspace }}\payload" deploy\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-FileHash dist\*-setup.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content dist\SHA256SUMS-setup.txt
+          Get-Content dist\SHA256SUMS-setup.txt
+
+      - name: Attach the installer to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          files: |
+            dist/*-setup.exe
+            dist/SHA256SUMS-setup.txt

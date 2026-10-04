@@ -1,4 +1,7 @@
-# Runs the test suite on every push and pull request, on Linux and Windows.
+# Runs on every push and pull request:
+#   - unit tests on Linux and Windows, Node 20 and 22
+#   - the Linux installer end to end (non-interactive, real systemd unit, then uninstall)
+#   - the Windows installer: compiled with Inno Setup, installed silently, checked, uninstalled
 name: CI
 
 on:
@@ -33,3 +36,106 @@ jobs:
       - run: npm test
       - name: Entry point and scripts parse
         run: node --check src/index.js && node --check scripts/register-commands.js && node --check scripts/check-config.js
+
+  linux-installer:
+    name: Linux installer (systemd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Shell syntax
+        run: bash -n deploy/linux/install.sh
+      - name: Fake Foundry data folder
+        run: |
+          mkdir -p "$HOME/foundrydata/Data/modules/lib-wrapper" "$HOME/foundrydata/Data/systems/dnd5e" "$HOME/foundrydata/Config"
+          echo '{"id":"lib-wrapper","title":"libWrapper","version":"1.0.0"}' > "$HOME/foundrydata/Data/modules/lib-wrapper/module.json"
+          echo '{"id":"dnd5e","title":"D&D 5e","version":"5.0.0"}' > "$HOME/foundrydata/Data/systems/dnd5e/system.json"
+          echo '{"port":30000}' > "$HOME/foundrydata/Config/options.json"
+      - name: Install non-interactively
+        run: |
+          sudo env "PATH=$PATH" ./deploy/linux/install.sh --non-interactive --no-start \
+            --token dummy-token --client-id 123456789012345678 --guild-id 987654321098765432 \
+            --dir /opt/foundryvtt-discord-integration --user "$USER" --data-path "$HOME/foundrydata" \
+            --timezone Europe/Stockholm --interval 15
+      - name: Verify
+        run: |
+          set -x
+          test -f /opt/foundryvtt-discord-integration/.env
+          sudo grep -q '^DISCORD_CLIENT_ID=123456789012345678$' /opt/foundryvtt-discord-integration/.env
+          sudo grep -q "^FOUNDRY_DATA_PATH=$HOME/foundrydata$" /opt/foundryvtt-discord-integration/.env
+          sudo grep -q '^TIMEZONE=Europe/Stockholm$' /opt/foundryvtt-discord-integration/.env
+          sudo grep -q '^POLL_INTERVAL_SECONDS=15$' /opt/foundryvtt-discord-integration/.env
+          test "$(sudo stat -c %a /opt/foundryvtt-discord-integration/.env)" = "600"
+          test -d /opt/foundryvtt-discord-integration/node_modules/discord.js
+          systemctl is-enabled foundryvtt-discord-bot
+          grep -q "^User=$USER$" /etc/systemd/system/foundryvtt-discord-bot.service
+          # The service starts (and then fails on the dummy token, which is the expected outcome without Discord).
+          sudo systemctl start foundryvtt-discord-bot || true
+          sleep 5
+          sudo journalctl -u foundryvtt-discord-bot --no-pager | tail -n 20
+          sudo journalctl -u foundryvtt-discord-bot --no-pager | grep -q 'Foundry VTT Discord integration starting'
+      - name: Re-run as an upgrade (keeps the configuration)
+        run: |
+          sudo env "PATH=$PATH" ./deploy/linux/install.sh --non-interactive --no-start --dir /opt/foundryvtt-discord-integration --user "$USER"
+          sudo grep -q '^DISCORD_GUILD_ID=987654321098765432$' /opt/foundryvtt-discord-integration/.env
+      - name: Uninstall
+        run: |
+          sudo ./deploy/linux/install.sh --uninstall --purge --dir /opt/foundryvtt-discord-integration
+          test ! -f /etc/systemd/system/foundryvtt-discord-bot.service
+          test ! -d /opt/foundryvtt-discord-integration
+
+  windows-installer:
+    name: Windows installer (Inno Setup)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Production dependencies for the payload
+        run: npm ci --omit=dev --no-audit --no-fund
+      - name: Compile the installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.0.0 "/DSourceDir=${{ github.workspace }}" deploy\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+      - name: Install silently
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\FoundryVTT\Data\modules\m1", "$env:LOCALAPPDATA\FoundryVTT\Config" | Out-Null
+          Set-Content "$env:LOCALAPPDATA\FoundryVTT\Data\modules\m1\module.json" '{"id":"m1","title":"M1","version":"1.0.0"}'
+          $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup.log','/DiscordToken=dummy-token','/ClientId=123456789012345678',"/DataPath=$env:LOCALAPPDATA\FoundryVTT",'/Timezone=Europe/Stockholm','/Interval=20' -Wait -PassThru
+          Get-Content setup.log | Select-Object -Last 40
+          $taskLog = "$env:ProgramData\FoundryVTT Discord integration\install-task.log"
+          if (Test-Path $taskLog) { "--- install-task.log ---"; Get-Content $taskLog }
+          if ($p.ExitCode -ne 0) { throw "setup exited with $($p.ExitCode)" }
+      - name: Verify
+        shell: pwsh
+        run: |
+          $envFile = "$env:ProgramData\FoundryVTT Discord integration\.env"
+          Get-Content $envFile | ForEach-Object { $_ -replace '^DISCORD_TOKEN=.*', 'DISCORD_TOKEN=***' }
+          if (-not (Select-String -Path $envFile -Pattern '^DISCORD_CLIENT_ID=123456789012345678$' -Quiet)) { throw ".env is missing the client id" }
+          if (-not (Select-String -Path $envFile -Pattern '^TIMEZONE=Europe/Stockholm$' -Quiet)) { throw ".env is missing the timezone" }
+          if (-not (Select-String -Path $envFile -Pattern '^POLL_INTERVAL_SECONDS=20$' -Quiet)) { throw ".env is missing the interval" }
+          $task = Get-ScheduledTask -TaskName "FoundryVTT Discord integration"
+          "Task state: $($task.State); action: $($task.Actions[0].Execute) $($task.Actions[0].Arguments)"
+          if ($task.Actions[0].Arguments -notmatch '--env') { throw "task does not point at the ProgramData .env" }
+          $app = "${env:ProgramFiles}\FoundryVTT Discord integration"
+          if (-not (Test-Path "$app\node_modules\discord.js")) { throw "node_modules missing from the installed payload" }
+          & node "$app\scripts\check-config.js" --env $envFile
+          if ($LASTEXITCODE -ne 0) { throw "check-config failed" }
+          Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+      - name: Uninstall silently
+        shell: pwsh
+        run: |
+          $unins = Get-ChildItem "${env:ProgramFiles}\FoundryVTT Discord integration\unins*.exe" | Select-Object -First 1
+          $p = Start-Process -FilePath $unins.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/PurgeConfig=1' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstaller exited with $($p.ExitCode)" }
+          Start-Sleep -Seconds 3
+          if (Get-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue) { throw "scheduled task still exists" }
+          if (Test-Path "$env:ProgramData\FoundryVTT Discord integration") { throw "config folder still exists" }
+          if (Test-Path "${env:ProgramFiles}\FoundryVTT Discord integration\src") { throw "program files still exist" }

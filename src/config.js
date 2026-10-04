@@ -39,7 +39,26 @@ export function parseEnv(text) {
   return result;
 }
 
-export function readEnvFile(file = path.join(PROJECT_ROOT, ".env")) {
+/**
+ * Where the .env file lives. In order: `--env <file>` on the command line, the
+ * FOUNDRY_DISCORD_ENV_FILE variable, .env next to package.json, and on Windows
+ * the file the installer writes under %ProgramData%.
+ */
+export function resolveEnvFile(argv = process.argv, env = process.env, platform = process.platform) {
+  const flag = argv.indexOf("--env");
+  if (flag !== -1 && argv[flag + 1]) return path.resolve(argv[flag + 1]);
+  const fromEnv = env.FOUNDRY_DISCORD_ENV_FILE;
+  if (fromEnv) return path.resolve(fromEnv);
+  const local = path.join(PROJECT_ROOT, ".env");
+  if (fs.existsSync(local)) return local;
+  if (platform === "win32" && env.ProgramData) {
+    const shared = path.join(env.ProgramData, "FoundryVTT Discord integration", ".env");
+    if (fs.existsSync(shared)) return shared;
+  }
+  return local;
+}
+
+export function readEnvFile(file = resolveEnvFile()) {
   try {
     return parseEnv(fs.readFileSync(file, "utf8"));
   } catch (err) {
@@ -75,9 +94,9 @@ export function isValidTimezone(tz) {
 /**
  * Build a validated config object from an environment-like object.
  * @param {Record<string,string|undefined>} env
- * @param {{ requireDiscord?: boolean }} [options]
+ * @param {{ requireDiscord?: boolean, baseDir?: string }} [options]  baseDir: what a relative BOT_DATA_DIR is relative to
  */
-export function buildConfig(env, { requireDiscord = true } = {}) {
+export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT } = {}) {
   const errors = [];
 
   const token = pick(env, "DISCORD_TOKEN");
@@ -110,7 +129,7 @@ export function buildConfig(env, { requireDiscord = true } = {}) {
 
   const dataPath = pick(env, "FOUNDRY_DATA_PATH");
   const appPath = pick(env, "FOUNDRY_APP_PATH");
-  const botDataDir = path.resolve(PROJECT_ROOT, pick(env, "BOT_DATA_DIR") ?? DEFAULTS.BOT_DATA_DIR);
+  const botDataDir = path.resolve(baseDir, pick(env, "BOT_DATA_DIR") ?? DEFAULTS.BOT_DATA_DIR);
 
   if (errors.length) {
     const err = new Error(`Configuration problems:\n  - ${errors.join("\n  - ")}`);
@@ -130,7 +149,8 @@ export function buildConfig(env, { requireDiscord = true } = {}) {
 }
 
 /** Load config from process.env layered over the .env file. */
-export function loadConfig(options) {
-  const env = { ...readEnvFile(), ...process.env };
-  return buildConfig(env, options);
+export function loadConfig(options = {}) {
+  const envFile = resolveEnvFile();
+  const env = { ...readEnvFile(envFile), ...process.env };
+  return buildConfig(env, { baseDir: path.dirname(envFile), ...options });
 }
