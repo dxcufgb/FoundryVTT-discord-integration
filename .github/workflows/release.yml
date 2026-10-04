@@ -1,21 +1,25 @@
-# Builds and publishes the bot whenever a GitHub Release is published.
+# Builds and publishes the bot whenever a version tag (v1.2.3) is pushed, or a
+# GitHub Release with such a tag is published (publishing a release creates the
+# tag, which also triggers this workflow).
 #
 # How to release a new version:
-#   1. Update CHANGELOG.md and push your changes.
-#   2. On GitHub: Releases -> "Draft a new release" -> create a tag like v1.0.1
-#      (the version number in package.json is taken from this tag).
-#   3. Click "Publish release". This workflow runs the tests and then attaches
-#      ready-to-run bundles (dependencies included) for Linux and Windows:
+#   1. Update CHANGELOG.md (a "## [1.2.3]" section) and push your changes.
+#   2. Either push a tag:   git tag v1.2.3 && git push origin v1.2.3
+#      or on GitHub: Releases -> "Draft a new release" -> create tag v1.2.3 -> Publish.
+#   3. This workflow runs the tests, creates the release if it does not exist yet
+#      (notes taken from the CHANGELOG.md section), and attaches ready-to-run
+#      bundles (dependencies included) for Linux and Windows:
 #        foundryvtt-discord-integration-<version>-linux.tar.gz
 #        foundryvtt-discord-integration-<version>-windows.zip
 #
+# The version number in package.json is taken from the tag.
 # See docs/RELEASING.md for the full procedure.
 
 name: Release bot
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: write
@@ -74,9 +78,33 @@ jobs:
           sha256sum dist/*.tar.gz dist/*.zip > dist/SHA256SUMS.txt
           cat dist/SHA256SUMS.txt
 
-      - name: Attach files to the release
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on=1; next }
+            on && /^## \[/ { exit }
+            on && !/^\[.*\]: http/ { print }
+          ' CHANGELOG.md > dist/RELEASE_NOTES.md
+          [ -s dist/RELEASE_NOTES.md ] || echo "Release ${{ steps.meta.outputs.tag }}." > dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+          # Only set the notes when this workflow creates the release; a release
+          # published by hand keeps the notes written on GitHub.
+          if gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+            echo "body_path=" >> "$GITHUB_OUTPUT"
+          else
+            echo "body_path=dist/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create the release (if needed) and attach the bundles
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.body_path }}
           files: |
             dist/*.tar.gz
             dist/*.zip

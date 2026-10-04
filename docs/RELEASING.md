@@ -1,6 +1,6 @@
 # Releasing
 
-Releases are built by GitHub Actions ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) when a GitHub Release is **published**. The workflow runs the tests, stamps the version from the tag into `package.json`, installs production dependencies and attaches:
+Releases are built by GitHub Actions ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) when a **version tag** (`vX.Y.Z`) is pushed, which also happens when a GitHub Release is published with a new tag. The workflow runs the tests, stamps the version from the tag into `package.json`, installs production dependencies, creates the GitHub Release if it does not exist yet (notes taken from the matching `CHANGELOG.md` section) and attaches:
 
 - `foundryvtt-discord-integration-<version>-linux.tar.gz` — bot + dependencies + `deploy/linux` (systemd)
 - `foundryvtt-discord-integration-<version>-windows.zip` — bot + dependencies + `deploy/windows` (Task Scheduler)
@@ -12,17 +12,17 @@ The bundles contain no native code, so one build serves both platforms.
 
 1. Make sure `main` is green (the **CI** workflow runs the tests on Linux and Windows, Node 20 and 22).
 2. Add a section for the new version to [`CHANGELOG.md`](../CHANGELOG.md) and merge it via a pull request (`main` is protected: one approving review, no force pushes).
-3. On GitHub: **Releases → Draft a new release**.
-   - *Choose a tag*: type the new tag, `vX.Y.Z` (semantic versioning: patch for fixes, minor for new commands/features, major for breaking changes such as changed `.env` variables or state format), and let GitHub create it from `main`.
-   - *Title*: the same `vX.Y.Z`.
-   - *Description*: paste the changelog section (or use *Generate release notes*).
-4. **Publish release**. Within a couple of minutes the *Release bot* workflow attaches the bundles. Check the Actions tab if they are missing.
+3. Tag `main` and push the tag (semantic versioning: patch for fixes, minor for new commands/features, major for breaking changes such as changed `.env` variables or state format):
 
-From the command line with the [GitHub CLI](https://cli.github.com):
+   ```
+   git checkout main && git pull
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
 
-```
-gh release create vX.Y.Z --title vX.Y.Z --notes-file <notes.md>
-```
+   Within a couple of minutes the *Release bot* workflow creates the release `vX.Y.Z` with the changelog section as notes and attaches the bundles. Check the Actions tab if they are missing.
+
+   Alternatively create the release on GitHub (**Releases → Draft a new release**, tag `vX.Y.Z` from `main`, title `vX.Y.Z`, your notes, **Publish**) or with the [GitHub CLI](https://cli.github.com) (`gh release create vX.Y.Z --title vX.Y.Z --notes-file <notes.md>`); the tag that GitHub creates triggers the same workflow, which then keeps your notes and only attaches the bundles.
 
 ## Versioning notes
 
