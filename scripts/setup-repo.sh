@@ -72,9 +72,9 @@ gh repo edit "$FULL" \
   --visibility public --accept-visibility-change-consequences \
   --default-branch main \
   --enable-issues --enable-projects --enable-wiki \
-  --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false \
+  --enable-squash-merge --squash-merge-commit-message default \
+  --enable-merge-commit=false --enable-rebase-merge=false \
   --enable-auto-merge=false --delete-branch-on-merge >/dev/null
-gh api -X PATCH "repos/$FULL" -f squash_merge_commit_title=COMMIT_OR_PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES >/dev/null
 
 # --- 4. Ruleset "Protect main" -------------------------------------------------------------
 RULESET_FILE="$WORK/.github/ruleset-protect-main.json"
