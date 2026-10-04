@@ -102,6 +102,8 @@ jobs:
           $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
           $p = Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup.log','/DiscordToken=dummy-token','/ClientId=123456789012345678',"/DataPath=$env:LOCALAPPDATA\FoundryVTT",'/Timezone=Europe/Stockholm','/Interval=20' -Wait -PassThru
           Get-Content setup.log | Select-Object -Last 40
+          $taskLog = "$env:ProgramData\FoundryVTT Discord integration\install-task.log"
+          if (Test-Path $taskLog) { "--- install-task.log ---"; Get-Content $taskLog }
           if ($p.ExitCode -ne 0) { throw "setup exited with $($p.ExitCode)" }
       - name: Verify
         shell: pwsh

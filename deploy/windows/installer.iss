@@ -73,7 +73,6 @@ Name: "{group}\Install guide"; Filename: "{#MyAppURL}/blob/main/docs/INSTALL.md"
 Name: "{group}\Uninstall"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\deploy\windows\install-task.ps1"" -InstallDir ""{app}"" -EnvFile ""{commonappdata}\{#MyAppName}\.env"" -NodeExe ""{code:GetNodeExe}"" -SkipConfigCheck"; Flags: runhidden waituntilterminated; StatusMsg: "Registering the scheduled task that runs the bot at startup..."
 Filename: "{app}\deploy\windows\check-config.bat"; Description: "Check the configuration and the connection to Foundry now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
@@ -354,6 +353,29 @@ begin
     SuppressibleMsgBox('Could not write ' + EnvFile, mbError, MB_OK, IDOK);
 end;
 
+{ Register the scheduled task through install-task.ps1; its output goes to install-task.log next to .env. }
+procedure RegisterTask;
+var
+  Params, LogFile: String;
+  ResultCode: Integer;
+begin
+  LogFile := ConfigDir + '\install-task.log';
+  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\deploy\windows\install-task.ps1') + '"' +
+    ' -InstallDir "' + ExpandConstant('{app}') + '" -EnvFile "' + EnvFile + '" -LogFile "' + LogFile + '" -SkipConfigCheck';
+  if NodeExe <> '' then
+    Params := Params + ' -NodeExe "' + NodeExe + '"';
+  WizardForm.StatusLabel.Caption := 'Registering the scheduled task that runs the bot at startup...';
+  if not Exec('powershell.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  begin
+    Log('install-task.ps1 failed with exit code ' + IntToStr(ResultCode) + '; see ' + LogFile);
+    SuppressibleMsgBox('The bot was installed, but the scheduled task that starts it could not be registered (exit code ' + IntToStr(ResultCode) + ').' + #13#10#13#10 +
+      'Details: ' + LogFile + #13#10#13#10 +
+      'You can retry from an elevated PowerShell:' + #13#10 + ExpandConstant('{app}\deploy\windows\install-task.ps1') + ' -EnvFile "' + EnvFile + '"', mbError, MB_OK, IDOK);
+  end
+  else
+    Log('install-task.ps1 succeeded');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -361,6 +383,7 @@ begin
     if NodeNeeded and WizardSilent then
       Log('Node.js is missing and cannot be installed silently; the scheduled task will fail until Node.js 20+ is installed.');
     WriteEnvFile;
+    RegisterTask;
   end;
 end;
 
