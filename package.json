@@ -1,0 +1,25 @@
+{
+  "name": "foundryvtt-discord-integration",
+  "version": "1.0.0",
+  "description": "Discord bot that keeps an eye on a Foundry VTT (v13) server on the same machine: up/down, world starts, package updates, restart windows.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "register-commands": "node scripts/register-commands.js",
+    "check-config": "node scripts/check-config.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dxcufgb/FoundryVTT-discord-integration"
+  },
+  "author": "Dxcufgb",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  }
+}

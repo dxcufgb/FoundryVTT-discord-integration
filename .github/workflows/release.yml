@@ -1,0 +1,83 @@
+# Builds and publishes the bot whenever a GitHub Release is published.
+#
+# How to release a new version:
+#   1. Update CHANGELOG.md and push your changes.
+#   2. On GitHub: Releases -> "Draft a new release" -> create a tag like v1.0.1
+#      (the version number in package.json is taken from this tag).
+#   3. Click "Publish release". This workflow runs the tests and then attaches
+#      ready-to-run bundles (dependencies included) for Linux and Windows:
+#        foundryvtt-discord-integration-<version>-linux.tar.gz
+#        foundryvtt-discord-integration-<version>-windows.zip
+#
+# See docs/RELEASING.md for the full procedure.
+
+name: Release bot
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Work out version
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "name=foundryvtt-discord-integration-${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: |
+          npm ci
+          npm test
+
+      - name: Stamp version into package.json
+        run: |
+          npm version "${{ steps.meta.outputs.version }}" --no-git-tag-version --allow-same-version
+          cat package.json | head -5
+
+      - name: Install production dependencies only
+        run: |
+          rm -rf node_modules
+          npm ci --omit=dev --no-audit --no-fund
+
+      - name: Build bundles
+        run: |
+          NAME="${{ steps.meta.outputs.name }}"
+          COMMON="src scripts docs node_modules package.json package-lock.json README.md LICENSE CHANGELOG.md .env.example"
+          rm -rf dist && mkdir -p "dist/linux/$NAME" "dist/windows/$NAME"
+
+          cp -R $COMMON "dist/linux/$NAME/"
+          mkdir -p "dist/linux/$NAME/deploy" && cp -R deploy/linux "dist/linux/$NAME/deploy/"
+          tar -C dist/linux -czf "dist/$NAME-linux.tar.gz" "$NAME"
+
+          cp -R $COMMON "dist/windows/$NAME/"
+          mkdir -p "dist/windows/$NAME/deploy" && cp -R deploy/windows "dist/windows/$NAME/deploy/"
+          (cd dist/windows && zip -qr "../$NAME-windows.zip" "$NAME")
+
+          ls -la dist/*.tar.gz dist/*.zip
+          sha256sum dist/*.tar.gz dist/*.zip > dist/SHA256SUMS.txt
+          cat dist/SHA256SUMS.txt
+
+      - name: Attach files to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS.txt
