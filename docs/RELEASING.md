@@ -22,6 +22,8 @@ The bundles contain no native code, so one build serves both platforms.
 
    Within a couple of minutes the *Release bot* workflow creates the release `vX.Y.Z` with the changelog section as notes and attaches the bundles. Check the Actions tab if they are missing.
 
+   Or, without a local checkout: **Actions → Release bot → Run workflow**, branch `main`, enter the tag `vX.Y.Z`. The workflow creates the tag and the release.
+
    Alternatively create the release on GitHub (**Releases → Draft a new release**, tag `vX.Y.Z` from `main`, title `vX.Y.Z`, your notes, **Publish**) or with the [GitHub CLI](https://cli.github.com) (`gh release create vX.Y.Z --title vX.Y.Z --notes-file <notes.md>`); the tag that GitHub creates triggers the same workflow, which then keeps your notes and only attaches the bundles.
 
 ## Versioning notes

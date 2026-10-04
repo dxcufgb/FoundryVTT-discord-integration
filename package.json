@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test",
     "register-commands": "node scripts/register-commands.js",
     "check-config": "node scripts/check-config.js"
   },

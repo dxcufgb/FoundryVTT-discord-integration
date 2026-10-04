@@ -1,11 +1,13 @@
-# Builds and publishes the bot whenever a version tag (v1.2.3) is pushed, or a
+# Builds and publishes the bot whenever a version tag (v1.2.3) is pushed, a
 # GitHub Release with such a tag is published (publishing a release creates the
-# tag, which also triggers this workflow).
+# tag, which also triggers this workflow), or the workflow is run by hand from
+# the Actions tab with the tag to create.
 #
 # How to release a new version:
 #   1. Update CHANGELOG.md (a "## [1.2.3]" section) and push your changes.
 #   2. Either push a tag:   git tag v1.2.3 && git push origin v1.2.3
-#      or on GitHub: Releases -> "Draft a new release" -> create tag v1.2.3 -> Publish.
+#      or on GitHub: Releases -> "Draft a new release" -> create tag v1.2.3 -> Publish,
+#      or Actions -> "Release bot" -> "Run workflow" -> enter v1.2.3.
 #   3. This workflow runs the tests, creates the release if it does not exist yet
 #      (notes taken from the CHANGELOG.md section), and attaches ready-to-run
 #      bundles (dependencies included) for Linux and Windows:
@@ -20,6 +22,12 @@ name: Release bot
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to release, e.g. v1.0.1 (created on the chosen branch if it does not exist)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -29,9 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -39,7 +47,8 @@ jobs:
       - name: Work out version
         id: meta
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ inputs.tag || github.ref_name }}"
+          case "$TAG" in v[0-9]*) ;; *) echo "Tag '$TAG' must look like v1.2.3" >&2; exit 1 ;; esac
           VERSION="${TAG#v}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -103,6 +112,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.meta.outputs.tag }}
           body_path: ${{ steps.notes.outputs.body_path }}
           files: |
