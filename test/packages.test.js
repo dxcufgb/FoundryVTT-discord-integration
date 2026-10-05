@@ -7,12 +7,14 @@ import { fakeDataFolder, tmpDir } from "./helpers.js";
 
 test("normaliseManifest handles v13 and legacy manifests", () => {
   const m = normaliseManifest("module", { id: "lib-wrapper", title: "libWrapper", version: "1.13.2", compatibility: { minimum: "11", verified: "13" }, changelog: "https://x/changes", url: "https://x" });
-  assert.deepEqual(m, { type: "module", id: "lib-wrapper", title: "libWrapper", version: "1.13.2", compatibility: "13", manifest: null, changelog: "https://x/changes", url: "https://x" });
+  assert.deepEqual(m, { type: "module", id: "lib-wrapper", title: "libWrapper", version: "1.13.2", compatibility: "13", compatibilityInfo: { minimum: "11", verified: "13", maximum: null }, manifest: null, changelog: "https://x/changes", url: "https://x" });
   const legacy = normaliseManifest("module", { name: "old-mod", version: 2, compatibleCoreVersion: "0.8.9" }, "old-mod-folder");
   assert.equal(legacy.id, "old-mod");
   assert.equal(legacy.title, "old-mod");
   assert.equal(legacy.version, "2");
   assert.equal(legacy.compatibility, "0.8.9");
+  assert.deepEqual(legacy.compatibilityInfo, { minimum: null, verified: "0.8.9", maximum: null });
+  assert.equal(normaliseManifest("module", { id: "bare" }, "x").compatibilityInfo, null);
   assert.equal(normaliseManifest("module", null, "x"), null);
   assert.equal(normaliseManifest("module", {}, ""), null);
   assert.equal(normaliseManifest("module", {}, "from-folder").id, "from-folder");

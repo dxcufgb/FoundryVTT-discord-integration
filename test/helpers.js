@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PermissionFlagsBits } from "discord.js";
 import { StateStore } from "../src/state.js";
 
 export function tmpDir(prefix = "fvtt-bot-test-") {
@@ -43,4 +44,35 @@ export function fakeDataFolder(packages) {
     fs.writeFileSync(path.join(dir, `${type}.json`), JSON.stringify(manifest));
   }
   return root;
+}
+
+/** Minimal stand-in for a discord.js ChatInputCommandInteraction. */
+export function fakeInteraction({ command, subcommand = null, options = {}, admin = false, guildId = "g1", channelId = "chan" }) {
+  const replies = [];
+  const perms = { has: (flag) => admin && flag === PermissionFlagsBits.Administrator };
+  return {
+    replies,
+    commandName: command,
+    guildId,
+    channel: { id: channelId },
+    memberPermissions: guildId ? perms : null,
+    deferred: false,
+    replied: false,
+    isChatInputCommand: () => true,
+    inGuild: () => Boolean(guildId),
+    options: {
+      getSubcommand: (required = true) => {
+        if (!subcommand && required) throw new Error("no subcommand");
+        return subcommand;
+      },
+      getString: (n) => options[n] ?? null,
+      getInteger: (n) => options[n] ?? null,
+      getBoolean: (n) => options[n] ?? null,
+      getChannel: (n) => options[n] ?? null,
+      getRole: (n) => options[n] ?? null,
+    },
+    async reply(p) { this.replied = true; replies.push(p); },
+    async deferReply(p) { this.deferred = true; replies.push({ deferred: true, ...p }); },
+    async editReply(p) { replies.push(p); },
+  };
 }
