@@ -80,7 +80,7 @@ export const NO_SUCH_CAMPAIGN = (text) => `There is no campaign called **${text}
  * @returns {string} the world id
  */
 export function resolveWorld(text, listWorlds) {
-  const typed = String(text ?? "").trim();
+  const typed = stripWorldLabel(text);
   const known = safeList(listWorlds);
   if (!known.length) return normaliseWorldId(typed);
   const exact = known.find((w) => w.id === typed);
@@ -89,6 +89,13 @@ export function resolveWorld(text, listWorlds) {
   if (byTitle.length === 1) return byTitle[0].id;
   const names = known.slice(0, 15).map((w) => `\`${w.id}\``).join(", ");
   throw new Error(`There is no world "${typed}" on the Foundry server. Worlds found: ${names}${known.length > 15 ? ", …" : ""}`);
+}
+
+/** A suggestion is labelled "Title (id)"; if that label is submitted instead of its value, keep just the id. */
+export function stripWorldLabel(text) {
+  const trimmed = String(text ?? "").trim();
+  const labelled = trimmed.match(/^.*\(([A-Za-z0-9][A-Za-z0-9._-]*)\)$/s);
+  return labelled ? labelled[1] : trimmed;
 }
 
 function safeList(listWorlds) {
