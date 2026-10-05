@@ -8,6 +8,8 @@ import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
 import { readFoundryVersion, readWorld, scanPackages } from "./foundry/packages.js";
+import { scanWorldsWithModules } from "./foundry/worlds.js";
+import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
 import { Notifier } from "./notifier.js";
 import { createClient } from "./discord/client.js";
@@ -32,13 +34,27 @@ async function main() {
   const fetchStatus = createStatusFetcher(config.foundry.url);
   const worldTitle = (id) => readWorld(config.foundry.dataPath, id)?.title ?? null;
 
-  const ctx = { config, state, fetchStatus, worldTitle, log, now: () => new Date() };
+  const scanInstalled = () => (config.foundry.dataPath ? scanPackages(config.foundry.dataPath) : []);
+  const readInstalledFoundryVersion = () => readFoundryVersion(config.foundry.appPath);
+
+  const ctx = {
+    config,
+    state,
+    fetchStatus,
+    worldTitle,
+    scanPackages: scanInstalled,
+    readFoundryVersion: readInstalledFoundryVersion,
+    worldsWithModules: () => (config.foundry.dataPath ? scanWorldsWithModules(config.foundry.dataPath, { log }) : []),
+    website: new FoundryWebsite({ baseUrl: config.foundry.websiteUrl, log }),
+    log,
+    now: () => new Date(),
+  };
   const client = createClient(ctx, { log });
   ctx.notifier = new Notifier({ client, state, worldTitle, log });
   ctx.monitor = new FoundryMonitor({
     fetchStatus,
-    scanPackages: () => (config.foundry.dataPath ? scanPackages(config.foundry.dataPath) : []),
-    readFoundryVersion: () => readFoundryVersion(config.foundry.appPath),
+    scanPackages: scanInstalled,
+    readFoundryVersion: readInstalledFoundryVersion,
     state,
     emit: (event) => ctx.notifier.deliver(event),
     options: { downAfterFailures: config.downAfterFailures },

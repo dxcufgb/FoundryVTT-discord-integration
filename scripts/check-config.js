@@ -3,6 +3,7 @@
 import { loadConfig } from "../src/config.js";
 import { createStatusFetcher } from "../src/foundry/status.js";
 import { readFoundryVersion, resolveDataFolder, scanPackages } from "../src/foundry/packages.js";
+import { moduleUsage, scanWorldsWithModules } from "../src/foundry/worlds.js";
 
 let config;
 try {
@@ -15,6 +16,7 @@ console.log("Configuration OK:");
 console.log(`  Foundry URL:        ${config.foundry.url}`);
 console.log(`  Foundry data path:  ${config.foundry.dataPath ?? "(not set – update tracking off)"}`);
 console.log(`  Foundry app path:   ${config.foundry.appPath ?? "(not set)"}`);
+console.log(`  Foundry website:    ${config.foundry.websiteUrl}`);
 console.log(`  Bot data dir:       ${config.botDataDir}`);
 console.log(`  Poll every:         ${config.pollIntervalSeconds} s, down after ${config.downAfterFailures} failed checks`);
 console.log(`  Timezone:           ${config.timezone}`);
@@ -30,5 +32,9 @@ if (result.ok) {
 if (config.foundry.dataPath) {
   const pkgs = scanPackages(config.foundry.dataPath);
   console.log(`Found ${pkgs.filter((p) => p.type === "system").length} systems and ${pkgs.filter((p) => p.type === "module").length} modules in ${resolveDataFolder(config.foundry.dataPath)}`);
+  const worlds = scanWorldsWithModules(config.foundry.dataPath);
+  const usage = moduleUsage(pkgs.filter((p) => p.type === "module"), worlds);
+  console.log(`Found ${worlds.length} worlds; module settings readable for ${worlds.length - usage.unreadable.length} of them; ${usage.unused.length} modules are not active in any world`);
+  for (const w of usage.unreadable) console.log(`  world ${w.id}: ${w.reason}`);
 }
 if (config.foundry.appPath) console.log(`Installed Foundry version from app folder: ${readFoundryVersion(config.foundry.appPath) ?? "not found"}`);

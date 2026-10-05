@@ -11,6 +11,7 @@ export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.
 
 export const DEFAULTS = Object.freeze({
   FOUNDRY_URL: "http://localhost:30000",
+  FOUNDRY_WEBSITE_URL: "https://foundryvtt.com",
   BOT_DATA_DIR: "./data",
   POLL_INTERVAL_SECONDS: 30,
   DOWN_AFTER_FAILURES: 2,
@@ -115,6 +116,15 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
     errors.push(`FOUNDRY_URL is not a valid http(s) URL (got "${foundryUrl}")`);
   }
 
+  let websiteUrl = pick(env, "FOUNDRY_WEBSITE_URL") ?? DEFAULTS.FOUNDRY_WEBSITE_URL;
+  try {
+    const parsed = new URL(websiteUrl);
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error("not http(s)");
+    websiteUrl = parsed.origin + parsed.pathname.replace(/\/+$/, "");
+  } catch {
+    errors.push(`FOUNDRY_WEBSITE_URL is not a valid http(s) URL (got "${websiteUrl}")`);
+  }
+
   const timezone = pick(env, "TIMEZONE") ?? DEFAULTS.TIMEZONE;
   if (!isValidTimezone(timezone)) errors.push(`TIMEZONE "${timezone}" is not a known IANA timezone (example: Europe/Stockholm)`);
 
@@ -139,7 +149,7 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
 
   return Object.freeze({
     discord: Object.freeze({ token, clientId, guildId: pick(env, "DISCORD_GUILD_ID") }),
-    foundry: Object.freeze({ url: foundryUrl, dataPath: dataPath ? path.resolve(dataPath) : undefined, appPath: appPath ? path.resolve(appPath) : undefined }),
+    foundry: Object.freeze({ url: foundryUrl, websiteUrl, dataPath: dataPath ? path.resolve(dataPath) : undefined, appPath: appPath ? path.resolve(appPath) : undefined }),
     botDataDir,
     pollIntervalSeconds,
     downAfterFailures,
