@@ -80,6 +80,13 @@ jobs:
         run: |
           sudo env "PATH=$PATH" ./deploy/linux/install.sh --non-interactive --no-start --dir /opt/foundryvtt-discord-integration --user "$USER"
           sudo grep -q '^DISCORD_GUILD_ID=987654321098765432$' /opt/foundryvtt-discord-integration/.env
+      - name: Re-run interactively on a pseudo-terminal, accepting every default
+        # Regression test: answering the hidden token prompt with Enter must keep the stored token, not end the script.
+        run: |
+          printf '\n\n\n\n\n\n\n\n\n\n\n\n' | sudo env "PATH=$PATH" script -qefc "./deploy/linux/install.sh --no-start --dir /opt/foundryvtt-discord-integration" /dev/null
+          sudo grep -q '^DISCORD_TOKEN=dummy-token$' /opt/foundryvtt-discord-integration/.env
+          sudo grep -q '^DISCORD_CLIENT_ID=123456789012345678$' /opt/foundryvtt-discord-integration/.env
+          sudo grep -q '^TIMEZONE=Europe/Stockholm$' /opt/foundryvtt-discord-integration/.env
       - name: Uninstall
         run: |
           sudo ./deploy/linux/install.sh --uninstall --purge --dir /opt/foundryvtt-discord-integration

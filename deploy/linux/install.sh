@@ -91,6 +91,7 @@ ask() {
   if [[ -n "$current" ]]; then printf '%s [%s]: ' "$prompt" "$current"; else printf '%s: ' "$prompt"; fi
   IFS= read -r answer < "$TTY" || answer=""
   _out="${answer:-$current}"
+  return 0
 }
 ask_secret() {
   local -n _out="$1"; local prompt="$2" answer
@@ -98,7 +99,9 @@ ask_secret() {
   if [[ -n "$_out" ]]; then printf '%s [keep current]: ' "$prompt"; else printf '%s: ' "$prompt"; fi
   IFS= read -r -s answer < "$TTY" || answer=""
   printf '\n'
-  [[ -n "$answer" ]] && _out="$answer"
+  # An empty answer keeps the current value. (Must not end in a failing test: set -e would stop the script.)
+  if [[ -n "$answer" ]]; then _out="$answer"; fi
+  return 0
 }
 ask_yn() { # ask_yn "Question" default(y|n) -> returns 0 for yes
   local prompt="$1" default="$2" answer
