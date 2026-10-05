@@ -1,11 +1,12 @@
-// Persistent state: guild channel settings, monitor settings, what the bot has
-// already announced. Stored as one JSON file, written atomically (write to a
-// temp file, then rename) so a crash mid-write never leaves a corrupt file.
+// Persistent state: guild channel settings, campaigns and their planned
+// sessions, monitor settings, what the bot has already announced. Stored as
+// one JSON file, written atomically (write to a temp file, then rename) so a
+// crash mid-write never leaves a corrupt file.
 
 import fs from "node:fs";
 import path from "node:path";
 
-export const MESSAGE_TYPES = Object.freeze(["default", "status", "world", "updates", "restart"]);
+export const MESSAGE_TYPES = Object.freeze(["default", "status", "world", "updates", "restart", "session"]);
 export const MONITORS = Object.freeze(["status", "world", "updates"]);
 
 export function defaultState() {
@@ -88,13 +89,13 @@ export class StateStore {
   // --- guild channel settings -----------------------------------------------
 
   guild(guildId) {
-    return this.data.guilds[guildId] ?? { channels: {}, mentionRole: null };
+    return this.data.guilds[guildId] ?? emptyGuild();
   }
 
   setChannel(guildId, type, channelId) {
     assertMessageType(type);
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= { channels: {}, mentionRole: null });
+      const g = (d.guilds[guildId] ??= emptyGuild());
       g.channels[type] = channelId;
       return g;
     });
@@ -113,7 +114,7 @@ export class StateStore {
 
   setMentionRole(guildId, roleId) {
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= { channels: {}, mentionRole: null });
+      const g = (d.guilds[guildId] ??= emptyGuild());
       g.mentionRole = roleId;
       return g;
     });
@@ -129,6 +130,70 @@ export class StateStore {
     return g.channels[type] ?? g.channels.default ?? null;
   }
 
+  // --- campaigns ------------------------------------------------------------------
+  //
+  // A campaign belongs to one Discord server, is bound to exactly one Foundry
+  // world and has exactly one DM (a Discord user). Any number of players can be
+  // part of it, and a user may be in any number of campaigns. Within a server a
+  // world can only be bound to one campaign, so "the DM of that world" is
+  // well defined.
+
+  /** All campaigns of a server, sorted by name. */
+  campaigns(guildId) {
+    const g = this.data.guilds[guildId];
+    return Object.values(g?.campaigns ?? {}).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** One campaign by its id (the slug of its name), or null. */
+  campaign(guildId, campaignId) {
+    return this.data.guilds[guildId]?.campaigns?.[campaignId] ?? null;
+  }
+
+  /** The campaign a world is bound to in a server, or null. */
+  campaignForWorld(guildId, worldId) {
+    return this.campaigns(guildId).find((c) => c.world === worldId) ?? null;
+  }
+
+  /** Every (guildId, campaign) pair bound to a world, across all servers. */
+  campaignsForWorld(worldId) {
+    const out = [];
+    for (const guildId of Object.keys(this.data.guilds)) {
+      const c = this.campaignForWorld(guildId, worldId);
+      if (c) out.push({ guildId, campaign: c });
+    }
+    return out;
+  }
+
+  /** Insert or replace a campaign. */
+  saveCampaign(guildId, campaign) {
+    return this.update((d) => {
+      const g = (d.guilds[guildId] ??= emptyGuild());
+      g.campaigns ??= {};
+      g.campaigns[campaign.id] = campaign;
+      return campaign;
+    });
+  }
+
+  /** Mutate one campaign in place and persist. Returns the campaign, or null when it does not exist. */
+  updateCampaign(guildId, campaignId, mutator) {
+    const existing = this.campaign(guildId, campaignId);
+    if (!existing) return null;
+    return this.update((d) => {
+      const c = d.guilds[guildId].campaigns[campaignId];
+      mutator(c);
+      return c;
+    });
+  }
+
+  deleteCampaign(guildId, campaignId) {
+    return this.update((d) => {
+      const g = d.guilds[guildId];
+      if (!g?.campaigns?.[campaignId]) return false;
+      delete g.campaigns[campaignId];
+      return true;
+    });
+  }
+
   // --- notified-once bookkeeping ----------------------------------------------
 
   wasNotified(key) {
@@ -140,6 +205,10 @@ export class StateStore {
       d.notified[key] = when.toISOString();
     });
   }
+}
+
+export function emptyGuild() {
+  return { channels: {}, mentionRole: null, campaigns: {} };
 }
 
 export function assertMessageType(type) {

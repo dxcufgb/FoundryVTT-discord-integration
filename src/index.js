@@ -7,11 +7,12 @@ import { loadConfig } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
-import { readFoundryVersion, readWorld, scanPackages } from "./foundry/packages.js";
+import { listWorlds, readFoundryVersion, readWorld, scanPackages } from "./foundry/packages.js";
 import { scanWorldsWithModules } from "./foundry/worlds.js";
 import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
 import { Notifier } from "./notifier.js";
+import { SessionScheduler } from "./sessions.js";
 import { createClient } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
 import { registerCommands } from "./discord/registerCommands.js";
@@ -42,6 +43,7 @@ async function main() {
     state,
     fetchStatus,
     worldTitle,
+    listWorlds: () => listWorlds(config.foundry.dataPath),
     scanPackages: scanInstalled,
     readFoundryVersion: readInstalledFoundryVersion,
     worldsWithModules: () => (config.foundry.dataPath ? scanWorldsWithModules(config.foundry.dataPath, { log }) : []),
@@ -50,16 +52,29 @@ async function main() {
     now: () => new Date(),
   };
   const client = createClient(ctx, { log });
+  ctx.client = client;
   ctx.notifier = new Notifier({ client, state, worldTitle, log });
+  ctx.sessions = new SessionScheduler({ state, emit: (event) => ctx.notifier.deliver(event), log });
   ctx.monitor = new FoundryMonitor({
     fetchStatus,
     scanPackages: scanInstalled,
     readFoundryVersion: readInstalledFoundryVersion,
     state,
-    emit: (event) => ctx.notifier.deliver(event),
+    emit: async (event) => {
+      try {
+        return await ctx.notifier.deliver(event);
+      } finally {
+        // A world start also tells the campaigns bound to that world that it can be joined.
+        await ctx.sessions.onMonitorEvent(event);
+      }
+    },
     options: { downAfterFailures: config.downAfterFailures },
     log,
   });
+  const poll = async () => {
+    await ctx.monitor.tick();
+    await ctx.sessions.tick();
+  };
 
   let timer = null;
   client.once(Events.ClientReady, async (c) => {
@@ -70,8 +85,8 @@ async function main() {
       log.error("Could not register slash commands:", err?.message ?? err);
     }
     if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
-    await ctx.monitor.tick();
-    timer = setInterval(() => ctx.monitor.tick(), config.pollIntervalSeconds * 1000);
+    await poll();
+    timer = setInterval(poll, config.pollIntervalSeconds * 1000);
     log.info(`Checking Foundry every ${config.pollIntervalSeconds} s.`);
   });
 

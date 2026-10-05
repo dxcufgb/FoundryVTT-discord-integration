@@ -24,10 +24,28 @@ export const EVENT_MESSAGE_TYPE = Object.freeze({
   packageRemoved: "updates",
   restartWindowStarted: "restart",
   restartOverdue: "restart",
+  worldReady: "session",
+  sessionWorldNotUp: "session",
 });
 
 /** Events that should ping the configured alert role. */
 export const MENTION_EVENTS = Object.freeze(new Set(["down", "restartOverdue"]));
+
+/**
+ * Campaign events carry their own audience: which users to tag. Returned ids
+ * end up both in the message text and in allowedMentions, so nobody else is
+ * pinged.
+ */
+export function eventMentions(event) {
+  switch (event.type) {
+    case "worldReady":
+      return [...(event.campaign?.players ?? [])];
+    case "sessionWorldNotUp":
+      return event.campaign?.dm ? [event.campaign.dm] : [];
+    default:
+      return [];
+  }
+}
 
 export function formatDuration(ms) {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return "unknown";
@@ -183,10 +201,50 @@ export function buildMessage(event, ctx = {}) {
         color: COLORS.red,
       };
       break;
+
+    case "worldReady": {
+      const c = event.campaign;
+      const status = event.status ?? {};
+      const fields = [{ name: "DM", value: `<@${c.dm}>`, inline: true }];
+      if (status.system) fields.push({ name: "System", value: status.systemVersion ? `${status.system} v${status.systemVersion}` : status.system, inline: true });
+      if (event.session?.at) fields.push({ name: "Session", value: `${discordTime(event.session.at, "f")} (${discordTime(event.session.at, "R")})`, inline: true });
+      embed = {
+        title: "🎲 The world is ready to join",
+        description: `${worldName(c.world)} for **${c.name}** is up. ${c.players.length ? "Players, you can log in now!" : "No players are registered for this campaign yet."}`,
+        color: COLORS.green,
+        fields,
+      };
+      break;
+    }
+
+    case "sessionWorldNotUp": {
+      const c = event.campaign;
+      const at = new Date(event.at);
+      const minutes = Math.max(0, Math.round((at.getTime() - now.getTime()) / 60_000));
+      const foundry = event.foundry ?? {};
+      let current;
+      if (foundry.status !== "up") current = "Foundry itself is **not answering**.";
+      else if (foundry.world) current = `Foundry is up but running ${worldName(foundry.world)} instead.`;
+      else current = "Foundry is up but sitting on the **setup screen**.";
+      embed = {
+        title: `⏰ Session in ${minutes} minute${minutes === 1 ? "" : "s"}, but the world is not up`,
+        description: `**${c.name}** is planned to start ${discordTime(at, "t")} (${discordTime(at, "R")}) in ${worldName(c.world)}, which is not running yet. ${current}`,
+        color: COLORS.orange,
+        fields: [{ name: "Players", value: c.players.length ? c.players.map((id) => `<@${id}>`).join(" ") : "none registered", inline: false }],
+      };
+      break;
+    }
   }
 
   embed.timestamp = now.toISOString();
   const payload = { messageType, embeds: [embed] };
   if (ctx.mentionRole && MENTION_EVENTS.has(event.type)) payload.content = `<@&${ctx.mentionRole}>`;
+  const users = eventMentions(event);
+  if (users.length) {
+    payload.content = users.map((id) => `<@${id}>`).join(" ");
+    payload.allowedMentions = { users };
+  } else if (event.guildId) {
+    payload.allowedMentions = { parse: [] }; // embeds mention users by name only
+  }
   return payload;
 }

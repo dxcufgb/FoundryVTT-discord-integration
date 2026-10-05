@@ -17,6 +17,7 @@ Where each **message type** is posted. Types:
 | `world` | World started, switched or shut down. |
 | `updates` | Foundry, system and module updates (and installs/removals). |
 | `restart` | Restart window opened; Foundry did not come back after the window. |
+| `session` | Campaign messages: the world is ready to join (tags the players); the world is not up 15 minutes before a planned session (tags the DM). A campaign can override this with its own channel. |
 
 - `/channel set type:<type> [channel:#channel]` — post that type in the channel (defaults to the channel you are in). Text channels, announcement channels and threads are allowed.
 - `/channel clear type:<type>` — stop posting that type (it falls back to `default` if set).
@@ -75,6 +76,31 @@ Which installed modules the worlds on the server actually use. The bot reads eac
 - `/modules usage module:<id>` — the worlds in which that module is active or required.
 
 Replies are only visible to you.
+
+## `/campaign`
+
+A campaign belongs to this server and binds **exactly one Foundry world** (the folder name under `Data/worlds`) to **exactly one DM** and any number of players. Within a server a world can belong to only one campaign, so "the DM of that world" is unambiguous; a member can be in any number of campaigns. The `campaign` option of every subcommand autocompletes with the campaigns of the server; `world` autocompletes with the worlds found under `FOUNDRY_DATA_PATH` (without it, any well-formed world id is accepted).
+
+- `/campaign create name:<name> world:<world id> dm:@user [channel:#channel]` — **admin.** Create a campaign. `channel` is where this campaign's `session` messages go (default: the server's `session` channel, or `default`). Bots cannot be DMs.
+- `/campaign edit campaign:<name> [name:<new name>] [world:<world id>] [dm:@user] [channel:#channel] [clear-channel:true]` — **admin.** Change the campaign. A new DM who was a player stops being one.
+- `/campaign delete campaign:<name>` — **admin.**
+- `/campaign add-player campaign:<name> user:@user` / `/campaign remove-player …` — **DM of that campaign or admin.**
+- `/campaign join campaign:<name>` / `/campaign leave campaign:<name>` — **everyone.** Join or leave as a player.
+- `/campaign list` — **everyone.** Campaigns with world, DM, player count and next session; marks the ones you are in.
+- `/campaign show campaign:<name>` — **everyone.** World, DM, players, next session and channel.
+
+When the monitor reports that a campaign's world has started (🌍 *World started* in the `world` channel), the bot also posts 🎲 *The world is ready to join* in the campaign's `session` channel, tagging the players, with the planned session time if there is one. This follows the `world` monitor: with `/monitor disable what:world` nothing is posted.
+
+## `/session`
+
+Plan a campaign's next session. `set`, `event` and `clear` are for the **campaign's DM or an administrator**; `show` is for everyone.
+
+- `/session set campaign:<name> when:<time> [timezone:<IANA>]` — `when` is local time in `timezone` (default: the bot's `TIMEZONE`): `2026-10-12 19:00`, `2026-10-12T19:00`, `today 19:00`, `tomorrow 19:00`, or a Discord timestamp such as `<t:1760295600:F>`. Must be in the future and at most a year away.
+- `/session event campaign:<name> link:<event link>` — paste the link of a Discord **scheduled event** in this server (*Copy Event Link*: `https://discord.com/events/<server>/<event>`) or its id. The event's start time becomes the next session time. Run it again after moving the event.
+- `/session clear campaign:<name>` — remove the planned session (and its pending reminder).
+- `/session show [campaign:<name>]` — the next session of one campaign, or of every campaign in the server.
+
+**15 minutes before** the planned time the bot checks (on its normal poll) whether Foundry is up *and* running the campaign's world. If not, it posts ⏰ *Session in 15 minutes, but the world is not up* to the campaign's `session` channel, tagging the DM and saying what is running instead (Foundry down, setup screen, another world). This is sent **once per planned time**; setting a new time arms it again. If the bot was offline at the 15-minute mark it still warns when it comes back before the session starts; after the start nothing is sent. A session stays visible as "started" for four hours and is then cleared, ready for the next one.
 
 ## `/test-message type:<type>` — admin
 

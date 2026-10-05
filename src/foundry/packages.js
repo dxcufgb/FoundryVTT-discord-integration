@@ -102,6 +102,13 @@ export function scanPackages(dataPath, { systems = true, modules = true } = {}) 
   return out;
 }
 
+/** All worlds in the data folder (id, title, ...), sorted by id. Empty when the data path is not set. */
+export function listWorlds(dataPath) {
+  const folder = resolveDataFolder(dataPath);
+  if (!folder) return [];
+  return scanPackageType(folder, "world");
+}
+
 /** Look up a world's manifest (for its title and system) by id. */
 export function readWorld(dataPath, worldId) {
   const folder = resolveDataFolder(dataPath);

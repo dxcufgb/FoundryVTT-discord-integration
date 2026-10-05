@@ -57,3 +57,30 @@ test("no configured channel drops the event quietly; all failures throw; partial
   voiceState.setChannel("g", "updates", "v");
   await assert.rejects(() => new Notifier({ client: fakeClient({ v: "voice" }), state: voiceState, log: quietLog }).deliver({ type: "foundryUpdated", version: "1" }), /could not deliver/);
 });
+
+test("campaign events go to their own server only, to the campaign channel when set", async () => {
+  const state = tmpState();
+  state.setChannel("g1", "default", "c-default");
+  state.setChannel("g1", "session", "c-session");
+  state.setChannel("g2", "default", "c-g2");
+  const client = fakeClient({});
+  const n = new Notifier({ client, state, log: quietLog, now: () => new Date("2026-03-01T00:00:00Z") });
+  const campaign = { id: "c", name: "C", world: "w", dm: "dm", players: ["p"] };
+
+  assert.equal(await n.deliver({ type: "worldReady", guildId: "g1", channelId: null, campaign, status: {}, session: null }), 1);
+  assert.deepEqual(client.sent.map((s) => s.id), ["c-session"], "only the campaign's server, via its session channel");
+  assert.equal(client.sent[0].payload.content, "<@p>");
+  assert.deepEqual(client.sent[0].payload.allowedMentions, { users: ["p"] });
+
+  client.sent.length = 0;
+  assert.equal(await n.deliver({ type: "sessionWorldNotUp", guildId: "g1", channelId: "c-campaign", campaign, at: new Date("2026-03-01T00:15:00Z"), foundry: { status: "down" } }), 1);
+  assert.deepEqual(client.sent.map((s) => s.id), ["c-campaign"], "campaign channel wins");
+
+  client.sent.length = 0;
+  assert.equal(await n.deliver({ type: "worldReady", guildId: "g2", channelId: null, campaign, status: {}, session: null }), 1);
+  assert.deepEqual(client.sent.map((s) => s.id), ["c-g2"], "default channel fallback");
+
+  client.sent.length = 0;
+  assert.equal(await n.deliver({ type: "worldReady", guildId: "g3", channelId: null, campaign, status: {}, session: null }), 0, "server without channels: dropped quietly");
+  assert.equal(client.sent.length, 0);
+});

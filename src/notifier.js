@@ -1,6 +1,8 @@
 // Delivers monitor events to Discord: one message per server that has a channel
-// for the event's message type. Works with anything that looks like a
-// discord.js Client (channels.fetch(id).send(payload)), so tests use a fake.
+// for the event's message type. Campaign events (worldReady, sessionWorldNotUp)
+// carry a guildId and go to that server only, to the campaign's own channel
+// when it has one. Works with anything that looks like a discord.js Client
+// (channels.fetch(id).send(payload)), so tests use a fake.
 
 import { buildMessage, EVENT_MESSAGE_TYPE } from "./messages.js";
 
@@ -22,8 +24,13 @@ export class Notifier {
   }
 
   /** Every (guildId, channelId) pair a message type should go to. */
-  targets(messageType) {
+  targets(messageType, event = {}) {
     const out = [];
+    if (event.guildId) {
+      const channelId = event.channelId ?? this.state.resolveChannel(event.guildId, messageType);
+      if (channelId) out.push({ guildId: event.guildId, channelId, mentionRole: this.state.guild(event.guildId).mentionRole ?? null });
+      return out;
+    }
     for (const guildId of Object.keys(this.state.data.guilds)) {
       const channelId = this.state.resolveChannel(guildId, messageType);
       if (channelId) out.push({ guildId, channelId, mentionRole: this.state.guild(guildId).mentionRole ?? null });
@@ -38,9 +45,9 @@ export class Notifier {
    */
   async deliver(event) {
     const messageType = EVENT_MESSAGE_TYPE[event.type];
-    const targets = this.targets(messageType);
+    const targets = this.targets(messageType, event);
     if (!targets.length) {
-      this.log.debug(`no channel configured for "${messageType}" messages; dropping ${event.type} event`);
+      this.log.debug(`no channel configured for "${messageType}" messages${event.guildId ? ` in server ${event.guildId}` : ""}; dropping ${event.type} event`);
       return 0;
     }
     let delivered = 0;

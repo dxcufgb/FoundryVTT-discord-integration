@@ -53,3 +53,32 @@ test("notified keys are remembered", () => {
   assert.equal(s.wasNotified("module:x@1.0"), true);
   assert.equal(s.data.notified["module:x@1.0"], "2026-01-01T00:00:00.000Z");
 });
+
+test("campaigns: per server, one campaign per world, update and delete", () => {
+  const s = new StateStore(path.join(tmpDir(), "s.json")).load();
+  assert.deepEqual(s.guild("g").campaigns, {});
+  assert.deepEqual(s.campaigns("g"), []);
+  assert.equal(s.campaign("g", "x"), null);
+  assert.equal(s.updateCampaign("g", "x", () => {}), null);
+
+  s.setChannel("g", "status", "c"); // a guild record created before campaigns existed
+  s.update((d) => delete d.guilds.g.campaigns);
+  s.saveCampaign("g", { id: "b", name: "Bravo", world: "w2", dm: "d", players: [] });
+  s.saveCampaign("g", { id: "a", name: "Alpha", world: "w1", dm: "d", players: [] });
+  s.saveCampaign("h", { id: "a", name: "Alpha elsewhere", world: "w1", dm: "e", players: [] });
+  assert.deepEqual(s.campaigns("g").map((c) => c.id), ["a", "b"], "sorted by name");
+  assert.equal(s.campaignForWorld("g", "w2").id, "b");
+  assert.equal(s.campaignForWorld("g", "nope"), null);
+  assert.deepEqual(s.campaignsForWorld("w1").map((x) => [x.guildId, x.campaign.name]), [["g", "Alpha"], ["h", "Alpha elsewhere"]]);
+
+  const updated = s.updateCampaign("g", "a", (c) => c.players.push("p"));
+  assert.deepEqual(updated.players, ["p"]);
+  const again = new StateStore(s.file).load();
+  assert.deepEqual(again.campaign("g", "a").players, ["p"], "persisted");
+  assert.equal(again.resolveChannel("g", "status"), "c", "other guild settings untouched");
+
+  assert.equal(s.deleteCampaign("g", "a"), true);
+  assert.equal(s.deleteCampaign("g", "a"), false);
+  assert.equal(s.deleteCampaign("nope", "a"), false);
+  assert.deepEqual(s.campaigns("g").map((c) => c.id), ["b"]);
+});
