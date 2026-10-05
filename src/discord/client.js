@@ -1,5 +1,6 @@
-// Discord client wiring: logs in, dispatches slash commands, enforces the
-// administrator check on configuration commands.
+// Discord client wiring: logs in, dispatches slash commands and their
+// autocomplete requests, enforces the administrator check on configuration
+// commands.
 
 import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { commandMap, requiresAdmin } from "./commands/index.js";
@@ -11,6 +12,7 @@ import { GUILD_ONLY_MESSAGE, isGuildAdministrator, NOT_ADMIN_MESSAGE } from "./p
  * @param {object} ctx  shared services handed to every command
  */
 export async function handleInteraction(interaction, ctx, { log = console } = {}) {
+  if (interaction.isAutocomplete?.()) return handleAutocomplete(interaction, ctx, { log });
   if (!interaction.isChatInputCommand?.()) return;
   const command = commandMap.get(interaction.commandName);
   if (!command) return;
@@ -35,6 +37,21 @@ export async function handleInteraction(interaction, ctx, { log = console } = {}
       else await interaction.reply(payload);
     } catch {
       // nothing more we can do
+    }
+  }
+}
+
+async function handleAutocomplete(interaction, ctx, { log }) {
+  const command = commandMap.get(interaction.commandName);
+  if (!command?.autocomplete) return;
+  try {
+    await command.autocomplete(interaction, ctx);
+  } catch (err) {
+    log.debug(`autocomplete for /${interaction.commandName} failed:`, err?.message ?? err);
+    try {
+      if (!interaction.responded) await interaction.respond([]);
+    } catch {
+      // the interaction has probably expired
     }
   }
 }

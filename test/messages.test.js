@@ -28,7 +28,10 @@ test("every event type has a message type and builds an embed", () => {
     { type: "packageRemoved", pkg },
     { type: "restartWindowStarted", window },
     { type: "restartOverdue", window, downSince: new Date("2026-03-01T04:05:00Z") },
+    { type: "worldReady", guildId: "g", campaign: { id: "c", name: "C", world: "w", dm: "d", players: [] }, status: {}, session: null },
+    { type: "sessionWorldNotUp", guildId: "g", campaign: { id: "c", name: "C", world: "w", dm: null, players: [] }, at: new Date("2026-03-01T12:15:00Z"), foundry: { status: "down", world: null } },
   ];
+  assert.deepEqual(Object.keys(EVENT_MESSAGE_TYPE).sort(), [...new Set(events.map((e) => e.type))].sort(), "every event type is covered");
   for (const event of events) {
     const msg = buildMessage(event, { now });
     assert.equal(msg.messageType, EVENT_MESSAGE_TYPE[event.type], event.type);
@@ -61,4 +64,31 @@ test("messages use world titles, show downtime and ping the role only for alerts
   assert.equal(updated.embeds[0].title, "⬆️ System updated");
   assert.match(updated.embeds[0].description, /\*\*5\.1\.0\*\* to \*\*5\.2\.0\*\*/);
   assert.match(updated.embeds[0].description, /\[Changelog\]\(https:\/\/c\)/);
+});
+
+test("campaign messages tag exactly the players or the DM", () => {
+  const campaign = { id: "c", name: "Lost Mines", world: "w", dm: "dm1", players: ["p1", "p2"] };
+  const worldTitle = (id) => (id === "w" ? "The World" : null);
+
+  const ready = buildMessage({ type: "worldReady", guildId: "g", campaign, status: { system: "dnd5e", systemVersion: "5.1.0" }, session: { at: "2026-03-01T19:00:00Z" } }, { now, worldTitle });
+  assert.equal(ready.messageType, "session");
+  assert.equal(ready.content, "<@p1> <@p2>");
+  assert.deepEqual(ready.allowedMentions, { users: ["p1", "p2"] });
+  assert.match(ready.embeds[0].description, /\*\*The World\*\* \(`w`\) for \*\*Lost Mines\*\* is up/);
+  assert.equal(ready.embeds[0].fields.find((f) => f.name === "DM").value, "<@dm1>");
+  assert.match(ready.embeds[0].fields.find((f) => f.name === "Session").value, /<t:1772391600:f>/);
+
+  const nobody = buildMessage({ type: "worldReady", guildId: "g", campaign: { ...campaign, players: [] }, status: {}, session: null }, { now });
+  assert.equal(nobody.content, undefined);
+  assert.deepEqual(nobody.allowedMentions, { parse: [] }, "the DM is named in the embed but not pinged");
+  assert.match(nobody.embeds[0].description, /No players are registered/);
+
+  const late = buildMessage({ type: "sessionWorldNotUp", guildId: "g", campaign, at: new Date("2026-03-01T12:15:00Z"), foundry: { status: "up", world: "other" } }, { now, worldTitle, mentionRole: "r1" });
+  assert.equal(late.content, "<@dm1>", "the DM is tagged, not the alert role");
+  assert.deepEqual(late.allowedMentions, { users: ["dm1"] });
+  assert.match(late.embeds[0].title, /Session in 15 minutes/);
+  assert.match(late.embeds[0].description, /running \*\*other\*\* instead/);
+  assert.equal(late.embeds[0].fields[0].value, "<@p1> <@p2>");
+  assert.match(buildMessage({ type: "sessionWorldNotUp", guildId: "g", campaign, at: new Date("2026-03-01T12:01:00Z"), foundry: { status: "down" } }, { now }).embeds[0].title, /in 1 minute,/);
+  assert.match(buildMessage({ type: "sessionWorldNotUp", guildId: "g", campaign, at: new Date("2026-03-01T12:10:00Z"), foundry: { status: "up", world: null } }, { now }).embeds[0].description, /setup screen/);
 });

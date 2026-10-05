@@ -7,6 +7,7 @@ export const TYPE_DESCRIPTIONS = Object.freeze({
   world: "A world was started or shut down",
   updates: "Foundry, system and module updates",
   restart: "Restart window opened / Foundry did not come back",
+  session: "Campaign sessions: world ready to join, world not up before a session",
 });
 
 const typeChoices = MESSAGE_TYPES.map((t) => ({ name: `${t} – ${TYPE_DESCRIPTIONS[t]}`, value: t }));

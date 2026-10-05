@@ -12,17 +12,21 @@ A small Discord bot that watches a [Foundry VTT](https://foundryvtt.com) **v13**
 | **restart** | A **restart window** is set (for example 04:00–04:15 every day). Downtime inside the window is reported calmly as a restart. If Foundry is still down when the window (plus a grace period) has passed, the bot raises ⚠️ *Foundry did not come back*. Optionally announces when the window opens. |
 | **world** | A world is launched (🌍 *World started*, with the world's title and game system), switched, or returned to the setup screen. |
 | **updates** | Foundry itself, an installed **system** or an installed **module** changes version (also newly installed and removed packages, if wanted). **Every update is announced exactly once**, even across bot restarts. |
+| **session** | A **campaign**'s world comes up (🎲 *The world is ready to join*, tagging the campaign's players), and 15 minutes before a planned session when that world is *not* running (⏰ tagging the DM). |
 
 Each message type can go to its own channel, several types can share a channel, and a **default** channel catches anything without its own. The bot can sit in more than one Discord server; channels are configured per server.
 
-Everything is configured from Discord with slash commands. Configuration commands are only available to members with the **Administrator** permission; `/status` and `/updates list` can be used by everyone.
+**Campaigns** bind Discord users to worlds: each campaign belongs to one Discord server, is connected to exactly one Foundry world and has exactly one **DM**; any number of server members can be its players, and a member can be in any number of campaigns. The DM (or an administrator) plans the next session with a date and time, or by pasting a link to a Discord scheduled event, whose start time is taken over.
+
+Everything is configured from Discord with slash commands. Configuration commands are only available to members with the **Administrator** permission; `/status`, `/updates list`, `/campaign list|show|join|leave` and `/session show` can be used by everyone.
 
 ## How it works
 
 - Every 30 seconds (configurable) the bot calls Foundry's status endpoint `GET /api/status` on `FOUNDRY_URL` (default `http://localhost:30000`). That endpoint needs no login and works while Foundry shows the setup screen, so it tells the bot whether Foundry is up, which version it runs and which world is active.
 - Foundry counts as *down* after two failed checks in a row (configurable), so a single slow answer does not cause an alert.
 - Every five minutes, and whenever Foundry comes back up, the bot reads the `system.json` / `module.json` manifests under Foundry's user data folder (`FOUNDRY_DATA_PATH`) and compares versions with what it saw last time. The first scan only records what is installed; nothing is announced until something changes.
-- Settings and the list of already announced updates live in `data/state.json` next to the bot. Writes are atomic, so a crash cannot corrupt it.
+- After every poll the bot looks at the campaigns' planned sessions. 15 minutes before one, if Foundry is down, on the setup screen or running another world, it tags the campaign's DM once. When the monitor sees a world start, every campaign bound to that world (in every server) gets a message tagging its players.
+- Settings, campaigns and the list of already announced updates live in `data/state.json` next to the bot. Writes are atomic, so a crash cannot corrupt it.
 
 ## Installation
 
@@ -56,6 +60,13 @@ Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `np
 | `/restart-window show` · `/restart-window clear` | admins | Show the window and its next opening / remove it. |
 | `/updates list [type]` | everyone | Installed systems and modules with versions. |
 | `/updates check` · `/updates settings` · `/updates reset` | admins | Scan now / choose what counts as an update / take the current versions as a fresh starting point. |
+| `/campaign create name world dm [channel]` | admins | Create a campaign: one Foundry world, one DM. `world` and `campaign` options autocomplete. |
+| `/campaign edit` · `/campaign delete` | admins | Change name, world, DM or channel / remove a campaign. |
+| `/campaign add-player` · `/campaign remove-player` | DM or admins | Manage the players of a campaign. |
+| `/campaign join` · `/campaign leave` · `/campaign list` · `/campaign show` | everyone | Join or leave a campaign; see campaigns, their DM, players and next session. |
+| `/session set campaign when [timezone]` | DM or admins | Next session at a date and time, e.g. `when:2026-10-12 19:00` or `tomorrow 19:00`. |
+| `/session event campaign link` | DM or admins | Take the next session's time from a Discord scheduled event. |
+| `/session clear` · `/session show [campaign]` | DM or admins · everyone | Remove the planned session / show the next session(s). |
 | `/test-message type` | admins | Post a test message to see where a type ends up. |
 
 Details for every command and option: **[docs/COMMANDS.md](docs/COMMANDS.md)**.
@@ -88,7 +99,7 @@ npm test            # unit tests (node:test, no extra tooling)
 npm start           # run the bot with the .env in this folder
 ```
 
-Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing and the administrator check on commands. CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd, and compiles, silently installs and uninstalls the Windows setup.
+Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd, and compiles, silently installs and uninstalls the Windows setup.
 
 Releases: see **[docs/RELEASING.md](docs/RELEASING.md)**.
 
