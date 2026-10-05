@@ -37,7 +37,8 @@ function readJson(file) {
 
 /**
  * Normalise a manifest. Foundry v10+ uses `id`; very old packages used `name`.
- * @returns {{type:string,id:string,title:string,version:string|null,compatibility:string|null,manifest:string|null,changelog:string|null,url:string|null}|null}
+ * `compatibility` is the single version Foundry shows ("verified for"), `compatibilityInfo` the full declaration.
+ * @returns {{type:string,id:string,title:string,version:string|null,compatibility:string|null,compatibilityInfo:{minimum:string|null,verified:string|null,maximum:string|null}|null,manifest:string|null,changelog:string|null,url:string|null}|null}
  */
 export function normaliseManifest(type, json, folderName) {
   if (!json || typeof json !== "object") return null;
@@ -51,10 +52,21 @@ export function normaliseManifest(type, json, folderName) {
     title: str(json.title) ?? id,
     version: str(json.version),
     compatibility: str(compat.verified ?? compat.maximum ?? compat.minimum ?? json.compatibleCoreVersion),
+    compatibilityInfo: compatibilityInfo(compat, json),
     manifest: str(json.manifest),
     changelog: str(json.changelog),
     url: str(json.url),
   };
+}
+
+function compatibilityInfo(compat, json) {
+  const str = (v) => (v === undefined || v === null || v === "" ? null : String(v));
+  const info = {
+    minimum: str(compat.minimum ?? json.minimumCoreVersion),
+    verified: str(compat.verified ?? json.compatibleCoreVersion),
+    maximum: str(compat.maximum),
+  };
+  return info.minimum || info.verified || info.maximum ? info : null;
 }
 
 /**

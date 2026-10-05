@@ -1,11 +1,12 @@
 import * as channel from "./channel.js";
+import * as modules from "./modules.js";
 import * as monitor from "./monitor.js";
 import * as restartWindow from "./restartWindow.js";
 import * as updates from "./updates.js";
 import * as status from "./status.js";
 import * as testMessage from "./testMessage.js";
 
-export const commands = [status, channel, monitor, restartWindow, updates, testMessage];
+export const commands = [status, channel, monitor, restartWindow, updates, modules, testMessage];
 
 export const commandMap = new Map(commands.map((c) => [c.data.name, c]));
 

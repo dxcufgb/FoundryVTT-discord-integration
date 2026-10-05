@@ -18,3 +18,6 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# Test fixtures are not log files
+!test/fixtures/**

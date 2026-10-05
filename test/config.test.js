@@ -33,6 +33,12 @@ test("buildConfig strips trailing slashes from the Foundry URL", () => {
   assert.equal(buildConfig({ ...minimal, FOUNDRY_URL: "http://foundry:30000/" }).foundry.url, "http://foundry:30000");
 });
 
+test("buildConfig validates the Foundry website URL and defaults it", () => {
+  assert.equal(buildConfig(minimal).foundry.websiteUrl, "https://foundryvtt.com");
+  assert.equal(buildConfig({ ...minimal, FOUNDRY_WEBSITE_URL: "https://mirror.example/foundry/" }).foundry.websiteUrl, "https://mirror.example/foundry");
+  assert.throws(() => buildConfig({ ...minimal, FOUNDRY_WEBSITE_URL: "ftp://x" }), /FOUNDRY_WEBSITE_URL/);
+});
+
 test("buildConfig reports all problems at once", () => {
   assert.throws(
     () => buildConfig({ FOUNDRY_URL: "nope", TIMEZONE: "Mars/Olympus", POLL_INTERVAL_SECONDS: "abc", LOG_LEVEL: "loud" }),

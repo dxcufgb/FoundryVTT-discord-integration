@@ -5,38 +5,7 @@ import { handleInteraction } from "../src/discord/client.js";
 import { commands, requiresAdmin } from "../src/discord/commands/index.js";
 import { isGuildAdministrator, NOT_ADMIN_MESSAGE } from "../src/discord/permissions.js";
 import { buildStatusEmbed } from "../src/discord/commands/status.js";
-import { quietLog, tmpState, upStatus } from "./helpers.js";
-
-/** Minimal stand-in for a discord.js ChatInputCommandInteraction. */
-function fakeInteraction({ command, subcommand = null, options = {}, admin = false, guildId = "g1", channelId = "chan" }) {
-  const replies = [];
-  const perms = { has: (flag) => admin && flag === PermissionFlagsBits.Administrator };
-  return {
-    replies,
-    commandName: command,
-    guildId,
-    channel: { id: channelId },
-    memberPermissions: guildId ? perms : null,
-    deferred: false,
-    replied: false,
-    isChatInputCommand: () => true,
-    inGuild: () => Boolean(guildId),
-    options: {
-      getSubcommand: (required = true) => {
-        if (!subcommand && required) throw new Error("no subcommand");
-        return subcommand;
-      },
-      getString: (n) => options[n] ?? null,
-      getInteger: (n) => options[n] ?? null,
-      getBoolean: (n) => options[n] ?? null,
-      getChannel: (n) => options[n] ?? null,
-      getRole: (n) => options[n] ?? null,
-    },
-    async reply(p) { this.replied = true; replies.push(p); },
-    async deferReply(p) { this.deferred = true; replies.push({ deferred: true, ...p }); },
-    async editReply(p) { replies.push(p); },
-  };
-}
+import { fakeInteraction, quietLog, tmpState, upStatus } from "./helpers.js";
 
 function ctx(extra = {}) {
   const state = tmpState();
@@ -66,6 +35,9 @@ test("all configuration commands are admin-only and guild-only in their definiti
   assert.equal(requiresAdmin(updates, "settings"), true);
   assert.equal(requiresAdmin(updates, "reset"), true);
   assert.equal(requiresAdmin(commands.find((c) => c.data.name === "status"), null), false);
+  assert.equal(requiresAdmin(updates, "available"), false);
+  assert.equal(requiresAdmin(updates, "compatibility"), false);
+  assert.equal(requiresAdmin(commands.find((c) => c.data.name === "modules"), "unused"), false);
   for (const name of ["channel", "monitor", "restart-window", "test-message"]) assert.equal(requiresAdmin(commands.find((c) => c.data.name === name), "anything"), true, name);
 });
 
