@@ -7,6 +7,7 @@ import { isGuildAdministrator, NOT_ADMIN_MESSAGE } from "../src/discord/permissi
 import { buildStatusEmbed } from "../src/discord/commands/status.js";
 import { NOT_DM_MESSAGE } from "../src/campaigns.js";
 import { fakeInteraction, quietLog, tmpState, upStatus } from "./helpers.js";
+import { resolveWorld } from "../src/discord/commands/campaign.js";
 
 function ctx(extra = {}) {
   const state = tmpState();
@@ -376,4 +377,11 @@ test("autocomplete suggests campaigns of this server and worlds on disk", async 
   assert.deepEqual(safe.replies[0].choices, [], "a failing world scan still answers");
   const noAuto = await run(c, { command: "status", focused: { name: "x", value: "" } });
   assert.equal(noAuto.replies.length, 0, "commands without autocomplete are ignored");
+});
+
+test("resolveWorld accepts a suggestion label and keeps just the world id", () => {
+  const worlds = () => [{ id: "dnd-online", title: "DND-Online" }];
+  assert.equal(resolveWorld("DND-Online (dnd-online)", worlds), "dnd-online");
+  assert.equal(resolveWorld("DND-Online (dnd-online)", () => []), "dnd-online");
+  assert.equal(resolveWorld("dnd-online", worlds), "dnd-online");
 });
