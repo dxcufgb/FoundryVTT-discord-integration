@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-05
+
 ### Fixed
 
 - `/campaign create` and `/campaign edit`: a world suggestion such as `DND-Online (dnd-online)` is now reduced to just its id (`dnd-online`) if the label is submitted instead of the suggestion's value.
