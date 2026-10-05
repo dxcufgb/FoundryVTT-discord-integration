@@ -14,17 +14,25 @@ A small Discord bot that watches a [Foundry VTT](https://foundryvtt.com) **v13**
 | **updates** | Foundry itself, an installed **system** or an installed **module** changes version (also newly installed and removed packages, if wanted). **Every update is announced exactly once**, even across bot restarts. |
 | **session** | A **campaign**'s world comes up (🎲 *The world is ready to join*, tagging the campaign's players), and 15 minutes before a planned session when that world is *not* running (⏰ tagging the DM). |
 
+On request (slash commands, nothing is posted automatically) the bot also looks **outward and inward**:
+
+- `/updates available` asks foundryvtt.com which newer versions exist and shows only those that fit the **installed Foundry major version** (v13 today): current version → latest compatible version, per system and module. Packages that have nothing new for your Foundry are left out. For Foundry itself it shows both a newer build of the installed major version *and* a newer major version when one is out.
+- `/updates compatibility` answers "could I upgrade to the next major Foundry?" by checking every installed system and module against that version: ready, needs an update first, untested, not ready, unknown.
+- `/modules unused` lists the installed modules that **no world on the server has enabled**, read straight from each world's settings database; `/modules usage` shows the active-module count per world or where one module is used.
+
 Each message type can go to its own channel, several types can share a channel, and a **default** channel catches anything without its own. The bot can sit in more than one Discord server; channels are configured per server.
 
 **Campaigns** bind Discord users to worlds: each campaign belongs to one Discord server, is connected to exactly one Foundry world and has exactly one **DM**; any number of server members can be its players, and a member can be in any number of campaigns. The DM (or an administrator) plans the next session with a date and time, or by pasting a link to a Discord scheduled event, whose start time is taken over.
 
-Everything is configured from Discord with slash commands. Configuration commands are only available to members with the **Administrator** permission; `/status`, `/updates list`, `/campaign list|show|join|leave` and `/session show` can be used by everyone.
+Everything is configured from Discord with slash commands. Configuration commands are only available to members with the **Administrator** permission; `/status`, `/updates list|available|compatibility`, `/modules`, `/campaign list|show|join|leave` and `/session show` can be used by everyone.
 
 ## How it works
 
 - Every 30 seconds (configurable) the bot calls Foundry's status endpoint `GET /api/status` on `FOUNDRY_URL` (default `http://localhost:30000`). That endpoint needs no login and works while Foundry shows the setup screen, so it tells the bot whether Foundry is up, which version it runs and which world is active.
 - Foundry counts as *down* after two failed checks in a row (configurable), so a single slow answer does not cause an alert.
 - Every five minutes, and whenever Foundry comes back up, the bot reads the `system.json` / `module.json` manifests under Foundry's user data folder (`FOUNDRY_DATA_PATH`) and compares versions with what it saw last time. The first scan only records what is installed; nothing is announced until something changes.
+- `/updates available` and `/updates compatibility` fetch each installed package's record from the foundryvtt.com package API (`/_api/packages/get?id=…`, which lists every published version with its compatibility declaration), falling back to the package's own `manifest` URL, and read the release list at `https://foundryvtt.com/releases/`. Answers are cached for 30 minutes. The compatibility verdicts are only as good as what package authors declare in their manifests.
+- `/modules unused` reads the active-module list (`core.moduleConfiguration`) from every world's settings database (`Data/worlds/<id>/data/settings`, LevelDB in Foundry v11+; the older NeDB `settings.db` is understood too) with a small read-only reader of the on-disk files, so it works while Foundry is running and without any native dependency.
 - After every poll the bot looks at the campaigns' planned sessions. 15 minutes before one, if Foundry is down, on the setup screen or running another world, it tags the campaign's DM once. When the monitor sees a world start, every campaign bound to that world (in every server) gets a message tagging its players.
 - Settings, campaigns and the list of already announced updates live in `data/state.json` next to the bot. Writes are atomic, so a crash cannot corrupt it.
 
@@ -51,7 +59,7 @@ Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `np
 | Command | Who | What |
 | --- | --- | --- |
 | `/status` | everyone | Is Foundry up, which version and world, users online, next restart window. |
-| `/channel set type channel` | admins | Post one kind of message (`default`, `status`, `world`, `updates`, `restart`) in a channel. |
+| `/channel set type channel` | admins | Post one kind of message (`default`, `status`, `world`, `updates`, `restart`, `session`) in a channel. |
 | `/channel clear type` · `/channel list` | admins | Stop posting a kind of message / show the current routing. |
 | `/channel mention role` | admins | Role to ping when Foundry goes down unexpectedly. |
 | `/monitor enable|disable what` | admins | Turn `status`, `world`, `updates` or `all` monitoring on or off. |
@@ -59,7 +67,11 @@ Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `np
 | `/restart-window set start duration [days] [timezone] [grace] [announce]` | admins | Expected restart, e.g. `start:04:00 duration:15 days:daily`. |
 | `/restart-window show` · `/restart-window clear` | admins | Show the window and its next opening / remove it. |
 | `/updates list [type]` | everyone | Installed systems and modules with versions. |
+| `/updates available [type]` | everyone | Newer Foundry builds (same major version and the next major version) and the newest system/module versions compatible with the installed Foundry. Only packages with an update are shown. |
+| `/updates compatibility [generation]` | everyone | Would the installed systems and modules work on the next major Foundry version (or the one given)? |
 | `/updates check` · `/updates settings` · `/updates reset` | admins | Scan now / choose what counts as an update / take the current versions as a fresh starting point. |
+| `/modules unused` | everyone | Installed modules that are not enabled in any world. |
+| `/modules usage [module]` | everyone | Active modules per world, or the worlds that use one module. |
 | `/campaign create name world dm [channel]` | admins | Create a campaign: one Foundry world, one DM. `world` and `campaign` options autocomplete. |
 | `/campaign edit` · `/campaign delete` | admins | Change name, world, DM or channel / remove a campaign. |
 | `/campaign add-player` · `/campaign remove-player` | DM or admins | Manage the players of a campaign. |
@@ -83,13 +95,14 @@ All settings are environment variables, read from `.env` (see [`.env.example`](.
 | `FOUNDRY_URL` | `http://localhost:30000` | Where the bot reaches Foundry. |
 | `FOUNDRY_DATA_PATH` | – | Foundry's user data folder (contains `Config/`, `Data/`, `Logs/`). Needed for system/module update tracking and world titles. |
 | `FOUNDRY_APP_PATH` | – | Foundry's install folder; lets the bot read the Foundry version while Foundry is down. |
+| `FOUNDRY_WEBSITE_URL` | `https://foundryvtt.com` | Where `/updates available` and `/updates compatibility` look up packages and releases. Only change it for a mirror. |
 | `BOT_DATA_DIR` | `./data` | Where `state.json` is kept. |
 | `POLL_INTERVAL_SECONDS` | `30` | How often Foundry is checked (minimum 5). |
 | `DOWN_AFTER_FAILURES` | `2` | Failed checks in a row before Foundry counts as down. |
 | `TIMEZONE` | `UTC` | Default timezone for restart windows (IANA name, e.g. `Europe/Stockholm`). |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 
-`npm run check-config` validates `.env`, probes Foundry and counts the installed packages without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
+`npm run check-config` validates `.env`, probes Foundry, counts the installed packages and worlds and tells how many modules no world uses, without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
 
 ## Development
 
@@ -99,7 +112,7 @@ npm test            # unit tests (node:test, no extra tooling)
 npm start           # run the bot with the .env in this folder
 ```
 
-Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd, and compiles, silently installs and uninstalls the Windows setup.
+Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, the LevelDB reader (against databases written by Foundry's own LevelDB binding, see `scripts/make-leveldb-fixtures.js`), world/module usage, the compatibility and update logic (with a fake foundryvtt.com), and campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd, and compiles, silently installs and uninstalls the Windows setup.
 
 Releases: see **[docs/RELEASING.md](docs/RELEASING.md)**.
 

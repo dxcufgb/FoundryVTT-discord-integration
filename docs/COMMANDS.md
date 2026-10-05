@@ -46,6 +46,16 @@ Tell the bot when Foundry is *expected* to restart.
 ## `/updates`
 
 - `/updates list [type:<systems|modules>]` — **everyone.** Installed systems and modules with their versions, plus the Foundry version.
+- `/updates available [type:<foundry|systems|modules>]` — **everyone.** What is new on foundryvtt.com that fits the installed Foundry:
+  - **Foundry VTT:** the latest build of the installed major version (for example 13.346 → 13.351) *and*, when one is out, the latest build of a newer major version (for example v14), each with a link to its release notes.
+  - **Systems and modules:** for each package, the installed version → the newest published version that is compatible with the installed Foundry major version (versions that need a newer or older Foundry are ignored). Packages without such an update are not listed; a summary line names those whose newer releases need a different Foundry and those that could not be looked up. A version that the author has not *verified* for the installed major version, but that nothing rules out, is shown with ⚠️.
+  - Package information comes from foundryvtt.com's package API, with the package's own `manifest` URL as a fallback; answers are cached for 30 minutes. The reply is only visible to you.
+- `/updates compatibility [generation:<number>]` — **everyone.** Checks every installed system and module against a major Foundry version — by default the newest released one (so, on v13, against v14), or the one given — using the compatibility the packages declare (installed manifest and published versions):
+  - ✅ **ready** — the installed version is verified for it
+  - 🔼 **update first** — a newer release is (shows which version)
+  - ⚠️ **untested** — nothing rules it out, but no version was verified for it
+  - ❌ **not ready** — every release excludes it
+  - ❔ **unknown** — no compatibility information anywhere
 - `/updates check` — **admin.** Scan the data folder now.
 - `/updates settings setting:<…> enabled:<true|false>` — **admin.** What counts as an update:
   - `foundry` — Foundry VTT version changes (default on)
@@ -56,6 +66,16 @@ Tell the bot when Foundry is *expected* to restart.
 - `/updates reset` — **admin.** Forget what has been announced and take the currently installed versions as the new starting point (nothing is posted).
 
 Each update (a given package at a given version) is announced **once**. If Discord could not be reached, the announcement is retried on the next scan.
+
+## `/modules` — everyone
+
+Which installed modules the worlds on the server actually use. The bot reads each world's active-module list (`core.moduleConfiguration`) from the world's settings database (Foundry v11+ LevelDB, or the older NeDB file) without going through Foundry, so it works while Foundry is running. A module counts as **used** when it is enabled in at least one world or listed as a requirement in a world's manifest.
+
+- `/modules unused` — installed modules that no world uses, with their versions. Worlds whose settings could not be read (for example a world that was never launched) are named, since modules used only there would be missed.
+- `/modules usage` — every world with its system and number of active modules.
+- `/modules usage module:<id>` — the worlds in which that module is active or required.
+
+Replies are only visible to you.
 
 ## `/campaign`
 

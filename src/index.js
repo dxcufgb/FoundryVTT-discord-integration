@@ -8,6 +8,8 @@ import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
 import { listWorlds, readFoundryVersion, readWorld, scanPackages } from "./foundry/packages.js";
+import { scanWorldsWithModules } from "./foundry/worlds.js";
+import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
 import { Notifier } from "./notifier.js";
 import { SessionScheduler } from "./sessions.js";
@@ -33,15 +35,30 @@ async function main() {
   const fetchStatus = createStatusFetcher(config.foundry.url);
   const worldTitle = (id) => readWorld(config.foundry.dataPath, id)?.title ?? null;
 
-  const ctx = { config, state, fetchStatus, worldTitle, listWorlds: () => listWorlds(config.foundry.dataPath), log, now: () => new Date() };
+  const scanInstalled = () => (config.foundry.dataPath ? scanPackages(config.foundry.dataPath) : []);
+  const readInstalledFoundryVersion = () => readFoundryVersion(config.foundry.appPath);
+
+  const ctx = {
+    config,
+    state,
+    fetchStatus,
+    worldTitle,
+    listWorlds: () => listWorlds(config.foundry.dataPath),
+    scanPackages: scanInstalled,
+    readFoundryVersion: readInstalledFoundryVersion,
+    worldsWithModules: () => (config.foundry.dataPath ? scanWorldsWithModules(config.foundry.dataPath, { log }) : []),
+    website: new FoundryWebsite({ baseUrl: config.foundry.websiteUrl, log }),
+    log,
+    now: () => new Date(),
+  };
   const client = createClient(ctx, { log });
   ctx.client = client;
   ctx.notifier = new Notifier({ client, state, worldTitle, log });
   ctx.sessions = new SessionScheduler({ state, emit: (event) => ctx.notifier.deliver(event), log });
   ctx.monitor = new FoundryMonitor({
     fetchStatus,
-    scanPackages: () => (config.foundry.dataPath ? scanPackages(config.foundry.dataPath) : []),
-    readFoundryVersion: () => readFoundryVersion(config.foundry.appPath),
+    scanPackages: scanInstalled,
+    readFoundryVersion: readInstalledFoundryVersion,
     state,
     emit: async (event) => {
       try {
