@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-05
+
 ### Fixed
 
 - `/campaign create` and `/campaign edit`: a world suggestion such as `DND-Online (dnd-online)` is now reduced to just its id (`dnd-online`) if the label is submitted instead of the suggestion's value.
@@ -55,7 +57,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/tag/v1.1.0
 [1.0.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/tag/v1.0.0
