@@ -39,6 +39,17 @@ test("buildConfig validates the Foundry website URL and defaults it", () => {
   assert.throws(() => buildConfig({ ...minimal, FOUNDRY_WEBSITE_URL: "ftp://x" }), /FOUNDRY_WEBSITE_URL/);
 });
 
+test("buildConfig errors never repeat the rejected values", () => {
+  assert.throws(
+    () => buildConfig({ ...minimal, FOUNDRY_URL: "ftp://user:hunter2@host", FOUNDRY_WEBSITE_URL: "ftp://other:hunter3@host", POLL_INTERVAL_SECONDS: "hunter4", TIMEZONE: "hunter5", LOG_LEVEL: "hunter6" }),
+    (err) => {
+      assert.ok(err.problems.length >= 5);
+      assert.ok(!/hunter\d/.test(err.message), err.message);
+      return true;
+    },
+  );
+});
+
 test("buildConfig reports all problems at once", () => {
   assert.throws(
     () => buildConfig({ FOUNDRY_URL: "nope", TIMEZONE: "Mars/Olympus", POLL_INTERVAL_SECONDS: "abc", LOG_LEVEL: "loud" }),

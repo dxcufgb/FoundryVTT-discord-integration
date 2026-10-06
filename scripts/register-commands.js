@@ -8,6 +8,10 @@ try {
   const config = loadConfig();
   await registerCommands(config, commands);
 } catch (err) {
-  console.error(err?.rawError ?? err?.message ?? err);
+  // Only Discord's own answer (status, code, message) is printed, never the request or the configuration.
+  const reply = err?.rawError;
+  console.error(reply?.message ?? err?.message ?? "Registering the commands failed.");
+  if (err?.status) console.error(`HTTP status: ${err.status}`);
+  if (reply?.code) console.error(`Discord error code: ${reply.code}`);
   process.exit(1);
 }
