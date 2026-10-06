@@ -79,7 +79,7 @@ function positiveInt(env, key, fallback) {
   const raw = pick(env, key);
   if (raw === undefined) return fallback;
   const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) throw new Error(`${key} must be a whole number greater than 0 (got "${raw}")`);
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`${key} must be a whole number greater than 0`);
   return n;
 }
 
@@ -113,7 +113,7 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
     if (!/^https?:$/.test(parsed.protocol)) throw new Error("not http(s)");
     foundryUrl = parsed.origin + parsed.pathname.replace(/\/+$/, "");
   } catch {
-    errors.push(`FOUNDRY_URL is not a valid http(s) URL (got "${foundryUrl}")`);
+    errors.push("FOUNDRY_URL is not a valid http(s) URL");
   }
 
   let websiteUrl = pick(env, "FOUNDRY_WEBSITE_URL") ?? DEFAULTS.FOUNDRY_WEBSITE_URL;
@@ -122,11 +122,11 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
     if (!/^https?:$/.test(parsed.protocol)) throw new Error("not http(s)");
     websiteUrl = parsed.origin + parsed.pathname.replace(/\/+$/, "");
   } catch {
-    errors.push(`FOUNDRY_WEBSITE_URL is not a valid http(s) URL (got "${websiteUrl}")`);
+    errors.push("FOUNDRY_WEBSITE_URL is not a valid http(s) URL");
   }
 
   const timezone = pick(env, "TIMEZONE") ?? DEFAULTS.TIMEZONE;
-  if (!isValidTimezone(timezone)) errors.push(`TIMEZONE "${timezone}" is not a known IANA timezone (example: Europe/Stockholm)`);
+  if (!isValidTimezone(timezone)) errors.push("TIMEZONE is not a known IANA timezone (example: Europe/Stockholm)");
 
   let pollIntervalSeconds = DEFAULTS.POLL_INTERVAL_SECONDS;
   let downAfterFailures = DEFAULTS.DOWN_AFTER_FAILURES;
@@ -135,7 +135,7 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
   if (pollIntervalSeconds < 5) errors.push("POLL_INTERVAL_SECONDS must be at least 5");
 
   const logLevel = (pick(env, "LOG_LEVEL") ?? DEFAULTS.LOG_LEVEL).toLowerCase();
-  if (!["debug", "info", "warn", "error"].includes(logLevel)) errors.push(`LOG_LEVEL "${logLevel}" must be debug, info, warn or error`);
+  if (!["debug", "info", "warn", "error"].includes(logLevel)) errors.push("LOG_LEVEL must be debug, info, warn or error");
 
   const dataPath = pick(env, "FOUNDRY_DATA_PATH");
   const appPath = pick(env, "FOUNDRY_APP_PATH");

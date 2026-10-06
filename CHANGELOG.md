@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Security
+
+- Configuration errors no longer print the rejected values (a `FOUNDRY_URL` with a password in it ended up in the log in clear text), and `npm run register-commands` prints only Discord's status, code and message instead of the whole error object. Fixes the three CodeQL "clear-text logging of sensitive information" alerts.
+
 ### Added
 
 - `/updates available changes:true`: one message per Foundry/system/module update, each with the cumulative changelogs of the versions between the installed and the latest one, kept within Discord's message size limit.
