@@ -46,10 +46,11 @@ Tell the bot when Foundry is *expected* to restart.
 ## `/updates`
 
 - `/updates list [type:<systems|modules>]` — **everyone.** Installed systems and modules with their versions, plus the Foundry version.
-- `/updates available [type:<foundry|systems|modules>]` — **everyone.** What is new on foundryvtt.com that fits the installed Foundry:
+- `/updates available [type:<foundry|systems|modules>] [changes:<true|false>]` — **everyone.** What is new on foundryvtt.com that fits the installed Foundry:
   - **Foundry VTT:** the latest build of the installed major version (for example 13.346 → 13.351) *and*, when one is out, the latest build of a newer major version (for example v14), each with a link to its release notes.
   - **Systems and modules:** for each package, the installed version → the newest published version that is compatible with the installed Foundry major version (versions that need a newer or older Foundry are ignored). Packages without such an update are not listed; a summary line names those whose newer releases need a different Foundry and those that could not be looked up. A version that the author has not *verified* for the installed major version, but that nothing rules out, is shown with ⚠️.
   - Package information comes from foundryvtt.com's package API, with the package's own `manifest` URL as a fallback; answers are cached for 30 minutes. The reply is only visible to you.
+  - **`changes:true`:** instead of one list you get a summary message followed by one message per update (Foundry build, Foundry major version, each system and module). Package messages show installed → latest and the changelog of **every published version in between** (newest first; a version whose changelog is only a link shows the link). Foundry messages link the release notes of each build in between. Each message stays within Discord's 4096-character limit: long changelogs are shortened evenly, and the oldest versions are summarised in one line if they cannot fit. At most 25 update messages are sent; narrow with `type` for more.
 - `/updates compatibility [generation:<number>]` — **everyone.** Checks every installed system and module against a major Foundry version — by default the newest released one (so, on v13, against v14), or the one given — using the compatibility the packages declare (installed manifest and published versions):
   - ✅ **ready** — the installed version is verified for it
   - 🔼 **update first** — a newer release is (shows which version)

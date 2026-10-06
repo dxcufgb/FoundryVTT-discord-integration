@@ -82,6 +82,7 @@ export function fakeInteraction({ command, subcommand = null, options = {}, admi
     async reply(p) { this.replied = true; replies.push(p); },
     async deferReply(p) { this.deferred = true; replies.push({ deferred: true, ...p }); },
     async editReply(p) { replies.push(p); },
+    async followUp(p) { replies.push(p); },
     async respond(choices) { this.responded = true; replies.push({ choices }); },
   };
 }

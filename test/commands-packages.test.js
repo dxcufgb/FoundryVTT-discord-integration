@@ -41,7 +41,7 @@ function fakeFetch(routes) {
 const ROUTES = {
   "https://site.test/releases/": RELEASES_HTML,
   "https://site.test/_api/packages/get?id=dnd5e": { status: "success", package: { id: "dnd5e", title: "D&D 5e", url: "https://site.test/packages/dnd5e", versions: [{ version: "5.0.0", compatibility: { verified: "13" } }, { version: "5.1.0", compatibility: { minimum: "14", verified: "14" } }] } },
-  "https://site.test/_api/packages/get?id=lib-wrapper": { status: "success", package: { id: "lib-wrapper", title: "libWrapper", versions: [{ version: "1.13.2", compatibility: { minimum: "11", verified: "13" } }, { version: "2.0.0", compatibility: { minimum: "14", verified: "14" } }] } },
+  "https://site.test/_api/packages/get?id=lib-wrapper": { status: "success", package: { id: "lib-wrapper", title: "libWrapper", versions: [{ version: "1.13.1", compatibility: { minimum: "11", verified: "13" } }, { version: "1.13.2", notes: "Fixed a crash", compatibility: { minimum: "11", verified: "13" } }, { version: "1.13.3", notes: "https://x/lw/changes", compatibility: { minimum: "11", verified: "13" } }, { version: "2.0.0", compatibility: { minimum: "14", verified: "14" } }] } },
   "https://site.test/_api/packages/get?id=old-module": { status: "success", package: { id: "old-module", versions: [{ version: "0.1.0", compatibility: { verified: "12", maximum: "13" } }] } },
   "https://x/never/module.json": { id: "never-enabled", version: "1.2.0", compatibility: { minimum: "13", verified: "14" } },
 };
@@ -115,7 +115,7 @@ test("/updates available: newer build and newer major for Foundry, only compatib
   assert.match(d, /\*\*Foundry VTT\*\* v13\.346 → \*\*v13\.351\*\* is the latest v13 build \(\[release notes\]\(https:\/\/site\.test\/releases\/13\.351\)\)/);
   assert.match(d, /New major version:\*\* Foundry \*\*v14\*\* is out, latest build v14\.368/);
   assert.match(d, /\*\*Systems\*\* – all 1 are up to date for v13/, "dnd5e 5.1.0 needs v14 and is not offered");
-  assert.match(d, /\*\*Modules – 2 updates for v13\*\*\n• 🧩 \*\*libWrapper\*\* `lib-wrapper` 1\.13\.1 → \*\*1\.13\.2\*\* · \[page\]\(https:\/\/site\.test\/packages\/lib-wrapper\)\n/);
+  assert.match(d, /\*\*Modules – 2 updates for v13\*\*\n• 🧩 \*\*libWrapper\*\* `lib-wrapper` 1\.13\.1 → \*\*1\.13\.3\*\* · \[page\]\(https:\/\/site\.test\/packages\/lib-wrapper\)\n/);
   assert.match(d, /• 🧩 \*\*Never Enabled\*\* `never-enabled` 1\.0\.0 → \*\*1\.2\.0\*\*\n/, "found through the manifest URL; minimum 13 and verified 14 cover v13");
   assert.doesNotMatch(d, /Old Module/, "nothing newer: not listed");
   assert.match(d, /1 with newer releases that need a different Foundry version: `dnd5e`/);
@@ -177,4 +177,23 @@ test("/updates compatibility reports readiness for the next major version", asyn
   const k = fakeInteraction({ command: "updates", subcommand: "compatibility" });
   await handleInteraction(k, unknownVersion, { log: quietLog });
   assert.match(k.replies[1].embeds[0].description, /not known yet/);
+});
+
+test("/updates available changes:true sends one message per update with the changelogs in between", async () => {
+  const c = ctx();
+  const i = fakeInteraction({ command: "updates", subcommand: "available", options: { changes: true } });
+  await handleInteraction(i, c, { log: quietLog });
+  const embeds = i.replies.slice(1).flatMap((r) => r.embeds);
+  assert.equal(i.replies.length, 1 + embeds.length, "one message per embed");
+  assert.equal(embeds[0].title, "🔎 4 updates available".replace("4", String(embeds.length - 1)));
+  const titles = embeds.map((e) => e.title);
+  assert.ok(titles.some((t) => /Foundry VTT v13\.346 → v13\.351/.test(t)));
+  assert.ok(titles.some((t) => /Foundry VTT v13\.346 → v14\.368/.test(t)));
+  const lw = embeds.find((e) => /lib-wrapper/.test(e.title));
+  assert.match(lw.description, /1\.13\.1 → \*\*1\.13\.3\*\*/);
+  assert.match(lw.description, /\*\*1\.13\.3\*\*\n\[Changelog\]\(https:\/\/x\/lw\/changes\)/);
+  assert.match(lw.description, /\*\*1\.13\.2\*\*\nFixed a crash/);
+  assert.doesNotMatch(lw.description, /\*\*1\.13\.1\*\*\n/, "the installed version itself is not included");
+  assert.doesNotMatch(lw.description, /2\.0\.0/);
+  assert.match(embeds[0].description, /`dnd5e`/);
 });

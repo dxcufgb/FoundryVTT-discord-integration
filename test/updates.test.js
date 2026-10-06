@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { fitChangelog } from "../src/discord/commands/updates.js";
 import { compareVersions, diffPackages, notifiedKey, packageKey, removedKey } from "../src/foundry/updates.js";
 
 const mod = (id, version, type = "module") => ({ type, id, title: id.toUpperCase(), version });
@@ -34,4 +35,18 @@ test("compareVersions", () => {
   assert.equal(compareVersions("1.2", "1.2.0"), 0);
   assert.equal(compareVersions("1.0.0-beta", "1.0.0-alpha"), 1);
   assert.equal(compareVersions("2", "10"), -1);
+});
+
+test("fitChangelog keeps everything when it fits and never exceeds the limit", () => {
+  const small = [{ version: "1.1", text: "a" }, { version: "1.0.1", text: null }];
+  assert.equal(fitChangelog(small, 500), "**1.1**\na\n\n**1.0.1**\n_no changelog published_");
+  const big = Array.from({ length: 40 }, (_, i) => ({ version: `1.${40 - i}`, text: "x".repeat(900) }));
+  for (const limit of [4000, 1000, 300]) {
+    const out = fitChangelog(big, limit);
+    assert.ok(out.length <= limit, `${out.length} <= ${limit}`);
+    assert.match(out, /^\*\*1\.40\*\*/, "newest first");
+  }
+  assert.match(fitChangelog(big, 1000), /older versions?/);
+  const one = fitChangelog([{ version: "2", text: "y".repeat(9000) }], 4000);
+  assert.ok(one.length <= 4000);
 });

@@ -1,6 +1,7 @@
 import { InteractionContextType, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { COLORS } from "../../messages.js";
-import { describeCompatibility, findAvailableUpdates, generationOf, majorUpgradeReport, summariseReleases } from "../../foundry/releases.js";
+import { buildOf, describeCompatibility, findAvailableUpdates, generationOf, majorUpgradeReport, summariseReleases } from "../../foundry/releases.js";
+import { compareVersions } from "../../foundry/updates.js";
 
 const SETTINGS = Object.freeze({
   foundry: ["trackFoundry", "Announce Foundry VTT updates"],
@@ -24,7 +25,8 @@ export const data = new SlashCommandBuilder()
     sub
       .setName("available")
       .setDescription("Updates on foundryvtt.com that fit the installed Foundry version (and newer Foundry builds)")
-      .addStringOption((o) => o.setName("type").setDescription("Only Foundry itself, only systems or only modules").addChoices({ name: "foundry", value: "foundry" }, { name: "systems", value: "system" }, { name: "modules", value: "module" })),
+      .addStringOption((o) => o.setName("type").setDescription("Only Foundry itself, only systems or only modules").addChoices({ name: "foundry", value: "foundry" }, { name: "systems", value: "system" }, { name: "modules", value: "module" }))
+      .addBooleanOption((o) => o.setName("changes").setDescription("One message per update, with the changelogs of every version between installed and latest")),
   )
   .addSubcommand((sub) =>
     sub
@@ -64,6 +66,13 @@ export async function execute(interaction, ctx) {
   if (sub === "available") {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const filter = interaction.options.getString("type");
+    if (interaction.options.getBoolean("changes")) {
+      const embeds = await buildUpdateChangesEmbeds(ctx, filter);
+      const [first, ...rest] = embeds;
+      await interaction.editReply({ embeds: [first] });
+      for (const embed of rest) await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      return;
+    }
     const embed = await buildAvailableUpdatesEmbed(ctx, filter);
     return interaction.editReply({ embeds: [embed] });
   }
@@ -198,6 +207,154 @@ export async function buildAvailableUpdatesEmbed(ctx, filter = null) {
     footer: { text: `Compatibility as declared by the packages for Foundry v${generation ?? "?"} · source: ${ctx.website.baseUrl}` },
     timestamp: ctx.now().toISOString(),
   };
+}
+
+// --- /updates available changes:true -------------------------------------------------------
+
+export const EMBED_DESCRIPTION_LIMIT = 4000;
+export const MAX_CHANGE_MESSAGES = 25;
+const MAX_FOUNDRY_NOTE_LINKS = 15;
+
+/** Notes of a version record: free text, or just a link to a changelog page. */
+function noteText(record) {
+  const n = record.notes?.trim();
+  if (!n) return null;
+  return /^https?:\/\/\S+$/i.test(n) ? `[Changelog](${n})` : n;
+}
+
+/**
+ * The changelog entries for every published version above `installed` up to `latest` (newest first).
+ * @returns {Array<{version:string, text:string|null}>}
+ */
+export function changelogBetween(versions, installed, latest) {
+  return (versions ?? [])
+    .filter((v) => (installed === null || compareVersions(v.version, installed) > 0) && compareVersions(v.version, latest) <= 0)
+    .sort((a, b) => compareVersions(b.version, a.version))
+    .map((v) => ({ version: v.version, text: noteText(v) }));
+}
+
+/**
+ * Lay out version changelogs inside `limit` characters. Newest versions come first; when
+ * everything does not fit, each entry gets an equal share (entries needing less give theirs
+ * back), and versions that cannot fit at all are summarised in one closing line.
+ */
+export function fitChangelog(entries, limit = EMBED_DESCRIPTION_LIMIT) {
+  const block = (e, text) => `**${e.version}**${text ? `\n${text}` : "\n_no changelog published_"}`;
+  const join = (blocks) => blocks.join("\n\n");
+  const full = join(entries.map((e) => block(e, e.text)));
+  if (full.length <= limit) return full;
+  const MIN = 120;
+  const reserve = 60; // room for the "and N older versions" line
+  let kept = entries.slice();
+  while (kept.length > 1 && (limit - reserve) / kept.length < MIN) kept = kept.slice(0, -1);
+  const omitted = entries.length - kept.length;
+  const tail = omitted ? `\n\n_…and ${omitted} older version${omitted === 1 ? "" : "s"} (${entries[entries.length - 1].version}–${entries[kept.length].version}); see the package page._` : "";
+  const budget = limit - tail.length;
+  // water-filling: short entries keep their full text, the rest share what is left
+  const sizes = kept.map((e) => block(e, e.text).length + 2);
+  const caps = new Array(kept.length).fill(0);
+  let remaining = budget;
+  let open = kept.map((_, i) => i);
+  while (open.length) {
+    const share = Math.floor(remaining / open.length);
+    const fits = open.filter((i) => sizes[i] <= share);
+    if (!fits.length) {
+      for (const i of open) caps[i] = share;
+      break;
+    }
+    for (const i of fits) {
+      caps[i] = sizes[i];
+      remaining -= sizes[i];
+    }
+    open = open.filter((i) => !fits.includes(i));
+  }
+  const blocks = kept.map((e, i) => {
+    const head = `**${e.version}**\n`;
+    if (!e.text) return block(e, null);
+    const room = Math.max(0, caps[i] - head.length - 2);
+    return `${head}${truncate(e.text, room)}`;
+  });
+  return truncate(join(blocks) + tail, limit);
+}
+
+/**
+ * Like buildAvailableUpdatesEmbed, but one embed per update; every embed carries the
+ * changelogs of the versions between the installed and the latest one.
+ * @returns {Promise<object[]>} at least one embed
+ */
+export async function buildUpdateChangesEmbeds(ctx, filter = null) {
+  const installed = installedFoundryVersion(ctx);
+  const generation = generationOf(installed);
+  const timestamp = ctx.now().toISOString();
+  const footer = { text: `Compatibility as declared by the packages for Foundry v${generation ?? "?"} · source: ${ctx.website.baseUrl}` };
+  const embeds = [];
+  const notes = [];
+
+  if (!filter || filter === "foundry") {
+    const site = ctx.website;
+    const result = await site.getReleases();
+    if (!result.ok) {
+      notes.push(`**Foundry VTT** – could not check ${site.releasesUrl()} (${result.error}).`);
+    } else {
+      const s = summariseReleases(result.releases, installed);
+      const channelOk = (r) => !s.channelKnown || r.channel === "stable";
+      const stable = result.releases.filter(channelOk);
+      const targets = [];
+      if (s.buildUpdate) targets.push({ latest: s.buildUpdate, between: stable.filter((r) => r.generation === s.generation && r.build > (buildOf(installed) ?? 0) && r.build <= s.buildUpdate.build), label: `v${s.generation} build` });
+      if (s.majorUpdate) targets.push({ latest: s.majorUpdate, between: stable.filter((r) => r.generation === s.majorUpdate.generation), label: `major version v${s.majorUpdate.generation}` });
+      for (const t of targets) {
+        const between = t.between.sort((a, b) => b.generation - a.generation || b.build - a.build);
+        const shown = between.slice(0, MAX_FOUNDRY_NOTE_LINKS);
+        const lines = shown.map((r) => `• [${r.version}](${site.releaseNotesUrl(r.version)})`);
+        if (between.length > shown.length) lines.push(`…and ${between.length - shown.length} more`);
+        embeds.push({
+          title: `🏰 Foundry VTT ${installed ? `v${installed}` : "(version unknown)"} → v${t.latest.version}`,
+          description: truncate(`Latest ${t.label}: **v${t.latest.version}** ([release notes](${site.releaseNotesUrl(t.latest.version)})).\n\n**Release notes per version**\n${lines.join("\n")}`, EMBED_DESCRIPTION_LIMIT),
+          color: COLORS.orange,
+          footer,
+          timestamp,
+        });
+      }
+    }
+  }
+
+  if (filter !== "foundry") {
+    const packages = ctx.scanPackages().filter((p) => !filter || p.type === filter);
+    if (!packages.length) {
+      notes.push(`No ${filter ? `${filter}s` : "systems or modules"} found. Is FOUNDRY_DATA_PATH set?`);
+    } else if (generation === null) {
+      notes.push("The installed Foundry version is not known yet, so updates cannot be filtered for it. Try again after the next check of Foundry, or set FOUNDRY_APP_PATH.");
+    } else {
+      const infos = await ctx.website.getPackageInfos(packages);
+      const r = findAvailableUpdates(packages, infos, generation);
+      for (const u of r.updates) {
+        const info = infos.get(`${u.pkg.type}:${u.pkg.id}`);
+        const entries = changelogBetween(info?.versions, u.installedVersion, u.latest.version);
+        const tag = u.latest.status === "verified" ? "" : ` ${describeCompatibility(u.latest.status, generation)}`;
+        const link = u.url ? ` · [page](${u.url})` : "";
+        const head = `${u.installedVersion ?? "?"} → **${u.latest.version}**${tag}${link}`;
+        const fallback = entries.every((e) => !e.text) && u.pkg.changelog ? `\n\n[Changelog](${u.pkg.changelog})` : "";
+        const body = entries.length ? fitChangelog(entries, EMBED_DESCRIPTION_LIMIT - head.length - 2 - fallback.length) : "_no changelog published_";
+        embeds.push({ title: truncate(`${icon(u.pkg)} ${u.pkg.title} (${u.pkg.id})`, 256), description: `${head}\n\n${body}${fallback}`, color: COLORS.orange, footer, timestamp });
+      }
+      if (r.heldBack.length) notes.push(`${r.heldBack.length} with newer releases that need a different Foundry version: ${names(r.heldBack)}`);
+      if (r.unknown.length) notes.push(`${r.unknown.length} not found on foundryvtt.com or via their manifest: ${names(r.unknown)}`);
+    }
+  }
+
+  let shown = embeds;
+  if (embeds.length > MAX_CHANGE_MESSAGES) {
+    shown = embeds.slice(0, MAX_CHANGE_MESSAGES);
+    notes.push(`Showing the first ${MAX_CHANGE_MESSAGES} of ${embeds.length} updates; use \`type\` to narrow the list.`);
+  }
+  const summary = {
+    title: shown.length ? `🔎 ${embeds.length} update${embeds.length === 1 ? "" : "s"} available` : "🔎 Everything is up to date",
+    description: truncate(notes.map((n) => (n.startsWith("**") || n.startsWith("The ") || n.startsWith("No ") ? n : `ℹ️ ${n}`)).join("\n") || (shown.length ? "Changelogs of the versions between installed and latest follow, one message per update." : "Nothing new for the installed Foundry version."), EMBED_DESCRIPTION_LIMIT),
+    color: shown.length ? COLORS.orange : COLORS.green,
+    footer,
+    timestamp,
+  };
+  return [summary, ...shown];
 }
 
 // --- /updates compatibility ----------------------------------------------------------------
