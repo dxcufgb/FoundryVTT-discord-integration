@@ -82,7 +82,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           npm version "$VERSION" --no-git-tag-version --allow-same-version
-          cat package.json | head -5
+          head -5 package.json
 
       - name: Install production dependencies only
         run: |
