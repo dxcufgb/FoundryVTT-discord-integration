@@ -8,7 +8,7 @@ description: Add a new Discord slash command (or subcommand) to this bot, includ
 1. Read `src/discord/commands/testMessage.js` (small) and, for subcommands, `src/discord/commands/channel.js` or `monitor.js`. Copy their shape: `export const data` (SlashCommandBuilder), `export async function execute(interaction, ctx)`, optional `autocomplete`, `adminOnly`, `adminSubcommands`.
 2. Create `src/discord/commands/<name>.js`:
    - `.setContexts(InteractionContextType.Guild)` — all commands are guild-only.
-   - Anything that changes configuration: `export const adminOnly = true` and `.setDefaultMemberPermissions(PermissionFlagsBits.Administrator)`. Mixed commands use `adminSubcommands = new Set([...])` instead.
+   - Anything that changes configuration: `export const adminOnly = true` and `.setDefaultMemberPermissions(PermissionFlagsBits.Administrator)`. Mixed commands use `adminSubcommands = new Set([...])` instead. Session operations are the exception: `/session` stays open in its definition and checks DM-or-administrator inside the command, so do not mark it admin-only.
    - Reply with `flags: MessageFlags.Ephemeral` for configuration output.
    - Take collaborators from `ctx` (`state`, `config`, `notifier`, `fetchStatus`, `now`, `log`) rather than importing singletons.
    - New persistent data goes through `src/state.js`; new message kinds extend `MESSAGE_TYPES` (and `/channel`, `/test-message`, docs).
