@@ -194,6 +194,52 @@ export class StateStore {
     });
   }
 
+  // --- planning polls ---------------------------------------------------------------
+  //
+  // An open planning poll, keyed by the id of the Discord message that shows it.
+
+  poll(guildId, messageId) {
+    return this.data.guilds[guildId]?.polls?.[messageId] ?? null;
+  }
+
+  savePoll(guildId, poll) {
+    return this.update((d) => {
+      const g = (d.guilds[guildId] ??= emptyGuild());
+      g.polls ??= {};
+      g.polls[poll.id] = poll;
+      return poll;
+    });
+  }
+
+  /** Mutate one poll in place and persist. Returns the poll, or null when it does not exist. */
+  updatePoll(guildId, messageId, mutator) {
+    if (!this.poll(guildId, messageId)) return null;
+    return this.update((d) => {
+      const p = d.guilds[guildId].polls[messageId];
+      mutator(p);
+      return p;
+    });
+  }
+
+  deletePoll(guildId, messageId) {
+    return this.update((d) => {
+      const g = d.guilds[guildId];
+      if (!g?.polls?.[messageId]) return false;
+      delete g.polls[messageId];
+      return true;
+    });
+  }
+
+  // --- game master role ---------------------------------------------------------------
+
+  setGmRole(guildId, roleId) {
+    return this.update((d) => {
+      const g = (d.guilds[guildId] ??= emptyGuild());
+      g.gmRole = roleId;
+      return g;
+    });
+  }
+
   // --- notified-once bookkeeping ----------------------------------------------
 
   wasNotified(key) {
@@ -208,7 +254,7 @@ export class StateStore {
 }
 
 export function emptyGuild() {
-  return { channels: {}, mentionRole: null, campaigns: {} };
+  return { channels: {}, mentionRole: null, gmRole: null, campaigns: {}, polls: {} };
 }
 
 export function assertMessageType(type) {
