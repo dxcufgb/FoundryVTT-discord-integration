@@ -224,3 +224,14 @@ test("/gm-role is admin-only and stores the role; helpers", async () => {
   assert.deepEqual(parseClock("7:30"), { hour: 7, minute: 30 });
   assert.equal(parseClock("25:00"), null);
 });
+
+test("a throwing world writer does not stop the announcement", async () => {
+  const env = setup();
+  env.ctx.setWorldNextSession = () => { throw new Error("boom"); };
+  await startPoll(env, ["2026-03-06"]);
+  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["20:00"], messageId: "eph" });
+  await handleInteraction(time, env.ctx, { log: quietLog });
+  assert.equal(env.sent.length, 2);
+  assert.match(last(time).content, /could not be set on world `lost-mines` \(boom\)/);
+});

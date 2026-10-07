@@ -205,7 +205,12 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
     c.reminderSentFor = null;
   });
   // The one write to Foundry's folders: the world's own "next session" date.
-  const world = ctx.setWorldNextSession ? ctx.setWorldNextSession(campaign.world, at) : { ok: false, reason: "not available" };
+  let world;
+  try {
+    world = ctx.setWorldNextSession ? await ctx.setWorldNextSession(campaign.world, at) : { ok: false, reason: "not available" };
+  } catch (err) {
+    world = { ok: false, reason: err?.message ?? String(err) };
+  }
   if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
   if (eventError && /permission/i.test(eventError)) ctx.checkHealth?.(interaction.guild).catch?.(() => {});
 

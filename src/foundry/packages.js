@@ -154,6 +154,7 @@ export function writeWorldNextSession(dataPath, worldId, when) {
   } catch {
     return { ok: false, reason: "world.json is not valid JSON" };
   }
+  if (!json || typeof json !== "object" || Array.isArray(json)) return { ok: false, reason: "world.json is not a JSON object" };
   json.nextSession = when ? new Date(when).toISOString() : null;
   const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? 2;
   const tmp = `${file}.${process.pid}.tmp`;

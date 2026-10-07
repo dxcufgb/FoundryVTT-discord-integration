@@ -82,6 +82,8 @@ test("writeWorldNextSession changes only nextSession and keeps the file's layout
   assert.equal(fs.readFileSync(file, "utf8"), '{\n    "id": "w1",\n    "title": "W1",\n    "nextSession": "2026-03-06T18:00:00.000Z"\n}\n');
   assert.deepEqual(writeWorldNextSession(root, "w1", null), { ok: true });
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).nextSession, null);
+  fs.writeFileSync(file, "null");
+  assert.deepEqual(writeWorldNextSession(root, "w1", new Date()), { ok: false, reason: "world.json is not a JSON object" });
   assert.equal(writeWorldNextSession(root, "nope", new Date()).ok, false);
   assert.equal(writeWorldNextSession(root, "../x", new Date()).ok, false);
   assert.equal(writeWorldNextSession(null, "w1", new Date()).ok, false);
