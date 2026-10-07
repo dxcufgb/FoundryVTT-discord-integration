@@ -220,7 +220,15 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
     (url ? `\n📅 Event: ${url}` : "") +
     (eventError ? `\n⚠️ The Discord event could not be created (${eventError}), but the session is planned.` : "");
   const channel = interaction.channel ?? (await ctx.client?.channels?.fetch(poll.channelId).catch(() => null));
-  if (channel?.send) await channel.send({ content: announcement, allowedMentions: { users: campaignMembers(campaign) } });
+  let announcementError = null;
+  if (channel?.send) {
+    try {
+      await channel.send({ content: announcement, allowedMentions: { users: campaignMembers(campaign) } });
+    } catch (err) {
+      announcementError = err?.message ?? String(err);
+      ctx.log?.warn?.("Could not announce the planned session:", announcementError);
+    }
+  }
 
   try {
     const pollMessage = await channel?.messages?.fetch(poll.id);
@@ -229,7 +237,8 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
     ctx.log?.debug?.("Could not update the poll message:", err?.message ?? err);
   }
   const foundry = world.ok ? `world \`${campaign.world}\` has the date as its next session` : `⚠️ the next session could not be set on world \`${campaign.world}\` (${world.reason})`;
-  return reply(`✅ Decided: <t:${unix}:F>. The session is announced${eventError ? "; the event could not be created" : " and the event is created"}, and ${foundry}.`);
+  const announced = announcementError ? `⚠️ the announcement failed (${announcementError})` : `The session is announced${eventError ? "; the event could not be created" : " and the event is created"}`;
+  return reply(`✅ Decided: <t:${unix}:F>. ${announced}, and ${foundry}.`);
 }
 
 async function createEvent(interaction, ctx, campaign, at) {

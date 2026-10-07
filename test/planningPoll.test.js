@@ -235,3 +235,15 @@ test("a throwing world writer does not stop the announcement", async () => {
   assert.equal(env.sent.length, 2);
   assert.match(last(time).content, /could not be set on world `lost-mines` \(boom\)/);
 });
+
+test("a failing announcement still closes the poll and is reported", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-06"]);
+  env.channel.send = async () => { throw new Error("Missing Access"); };
+  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["20:00"], messageId: "eph" });
+  await handleInteraction(time, env.ctx, { log: quietLog });
+  assert.equal(env.state.campaign("g1", "lost-mines").nextSession.at, "2026-03-06T19:00:00.000Z");
+  assert.deepEqual(env.pollMessage.edits[0].components, []);
+  assert.match(last(time).content, /the announcement failed \(Missing Access\)/);
+});
