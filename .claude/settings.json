@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -e '.stop_hook_active == true' >/dev/null 2>&1 && exit 0; cd \"${CLAUDE_PROJECT_DIR:-.}\" && [ -d node_modules ] || exit 0; out=$(npm test 2>&1) || { echo \"npm test failed:\" >&2; echo \"$out\" | tail -60 >&2; exit 2; }",
+            "timeout": 120,
+            "statusMessage": "Running npm test..."
+          }
+        ]
+      }
+    ]
+  }
+}
