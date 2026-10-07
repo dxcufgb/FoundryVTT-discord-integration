@@ -7,7 +7,7 @@ import { loadConfig } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
-import { listWorlds, readFoundryVersion, readWorld, scanPackages } from "./foundry/packages.js";
+import { listWorlds, readFoundryVersion, readWorld, scanPackages, writeWorldNextSession } from "./foundry/packages.js";
 import { scanWorldsWithModules } from "./foundry/worlds.js";
 import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
@@ -15,6 +15,7 @@ import { Notifier } from "./notifier.js";
 import { SessionScheduler } from "./sessions.js";
 import { createClient } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
+import { watchGuildHealth } from "./discord/health.js";
 import { registerCommands } from "./discord/registerCommands.js";
 
 async function main() {
@@ -47,12 +48,14 @@ async function main() {
     scanPackages: scanInstalled,
     readFoundryVersion: readInstalledFoundryVersion,
     worldsWithModules: () => (config.foundry.dataPath ? scanWorldsWithModules(config.foundry.dataPath, { log }) : []),
+    setWorldNextSession: (worldId, when) => writeWorldNextSession(config.foundry.dataPath, worldId, when),
     website: new FoundryWebsite({ baseUrl: config.foundry.websiteUrl, log }),
     log,
     now: () => new Date(),
   };
   const client = createClient(ctx, { log });
   ctx.client = client;
+  watchGuildHealth(client, ctx);
   ctx.notifier = new Notifier({ client, state, worldTitle, log });
   ctx.sessions = new SessionScheduler({ state, emit: (event) => ctx.notifier.deliver(event), log });
   ctx.monitor = new FoundryMonitor({

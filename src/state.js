@@ -240,6 +240,15 @@ export class StateStore {
     });
   }
 
+  /** What the bot last warned this server about (a key), so the same problem is announced once. */
+  setHealthIssue(guildId, key) {
+    return this.update((d) => {
+      const g = (d.guilds[guildId] ??= emptyGuild());
+      g.healthIssue = key;
+      return g;
+    });
+  }
+
   // --- notified-once bookkeeping ----------------------------------------------
 
   wasNotified(key) {
@@ -254,7 +263,7 @@ export class StateStore {
 }
 
 export function emptyGuild() {
-  return { channels: {}, mentionRole: null, gmRole: null, campaigns: {}, polls: {} };
+  return { channels: {}, mentionRole: null, gmRole: null, healthIssue: null, campaigns: {}, polls: {} };
 }
 
 export function assertMessageType(type) {

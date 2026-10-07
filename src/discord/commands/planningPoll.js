@@ -204,6 +204,10 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
     c.nextSession = session;
     c.reminderSentFor = null;
   });
+  // The one write to Foundry's folders: the world's own "next session" date.
+  const world = ctx.setWorldNextSession ? ctx.setWorldNextSession(campaign.world, at) : { ok: false, reason: "not available" };
+  if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
+  if (eventError && /permission/i.test(eventError)) ctx.checkHealth?.(interaction.guild).catch?.(() => {});
 
   const unix = Math.floor(at.getTime() / 1000);
   const announcement =
@@ -219,7 +223,8 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   } catch (err) {
     ctx.log?.debug?.("Could not update the poll message:", err?.message ?? err);
   }
-  return reply(`✅ Decided: <t:${unix}:F>. The session is announced${eventError ? "; the event could not be created" : " and the event is created"}.`);
+  const foundry = world.ok ? `world \`${campaign.world}\` has the date as its next session` : `⚠️ the next session could not be set on world \`${campaign.world}\` (${world.reason})`;
+  return reply(`✅ Decided: <t:${unix}:F>. The session is announced${eventError ? "; the event could not be created" : " and the event is created"}, and ${foundry}.`);
 }
 
 async function createEvent(interaction, ctx, campaign, at) {

@@ -21,8 +21,9 @@ function setup({ gmRole = null } = {}) {
     messages: { fetch: async () => pollMessage },
   };
   const guild = { id: "g1", scheduledEvents: { create: async (o) => { created.push(o); return { id: "e1", name: o.name }; } } };
-  const ctx = { state, config: { timezone: "Europe/Stockholm" }, worldTitle: () => "The Lost Mines", now: () => NOW, log: quietLog };
-  return { ctx, state, sent, created, channel, guild, pollMessage };
+  const worldWrites = [];
+  const ctx = { setWorldNextSession: (w, at) => { worldWrites.push([w, at.toISOString()]); return { ok: true }; }, state, config: { timezone: "Europe/Stockholm" }, worldTitle: () => "The Lost Mines", now: () => NOW, log: quietLog };
+  return { ctx, state, sent, created, channel, guild, pollMessage, worldWrites };
 }
 
 /** A fake button / select / modal interaction. */
@@ -150,6 +151,8 @@ test("decide: needs votes, offers only the dates with the most votes, then a tim
   // 19:00 in Stockholm (CET, UTC+1) is 18:00 UTC.
   assert.equal(env.created.length, 1);
   assert.equal(env.created[0].scheduledStartTime.toISOString(), "2026-03-06T18:00:00.000Z");
+  assert.equal(env.created[0].scheduledEndTime.toISOString(), "2026-03-06T21:00:00.000Z");
+  assert.deepEqual(env.worldWrites, [["lost-mines", "2026-03-06T18:00:00.000Z"]]);
   const campaign = env.state.campaign("g1", "lost-mines");
   assert.equal(campaign.nextSession.at, "2026-03-06T18:00:00.000Z");
   assert.equal(campaign.nextSession.source, "event");

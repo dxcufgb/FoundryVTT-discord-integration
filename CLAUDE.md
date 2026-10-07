@@ -26,7 +26,7 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - Match the surrounding style: terse code, dependency-injected context (`{ state, config, notifier, ... }`) so tests can fake everything; see `test/helpers.js`.
 - Slash commands are guild-only. Bot-configuration commands set `adminOnly = true` (or `adminSubcommands`) and `setDefaultMemberPermissions(Administrator)`; `test/commands.test.js` enforces this for every command. `/session` is the exception: it is checked against the campaign's DM (or an administrator) inside the command.
 - Replies to configuration commands are ephemeral.
-- Foundry data (LevelDB, manifests) is read-only; never write to Foundry's folders.
+- Foundry data (LevelDB, manifests) is read-only; never write to Foundry's folders. The one exception: `writeWorldNextSession` (`src/foundry/packages.js`) sets the `nextSession` key of a world's `world.json` when a planning poll decides a date. Do not widen it.
 - Never commit `.env`, `data/` or tokens.
 
 ## Docs and changelog

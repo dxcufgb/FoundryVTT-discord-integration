@@ -8,7 +8,7 @@ import { mentionUser } from "./campaigns.js";
 
 /** Discord allows at most 25 options in a select menu. */
 export const MAX_POLL_DATES = 25;
-export const SESSION_DURATION_MS = 4 * 3600_000;
+export const SESSION_DURATION_MS = 3 * 3600_000;
 export const NOT_POLL_MANAGER_MESSAGE = "Only the person who created the poll, the campaign's DM, a game master or a server administrator can do that.";
 export const NOT_POLL_VOTER_MESSAGE = "Only the DM and the players of this campaign can vote.";
 export const NO_POLL_MESSAGE = "This poll is no longer active.";
