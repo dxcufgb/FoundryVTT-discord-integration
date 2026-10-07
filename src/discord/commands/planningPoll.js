@@ -177,6 +177,7 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   if (!poll || !(await requireManager(interaction, ctx, poll, campaign))) return undefined;
   if (!clock) return interaction.reply(ephemeral("That is not a time. Write it as HH:MM, for example 19:30."));
   if (!poll.dates.includes(date)) return interaction.reply(ephemeral("That date is not part of the poll."));
+  if (!topDates(poll).dates.includes(date)) return interaction.reply(ephemeral("That date no longer has the most votes. Press **Decide date** again."));
   const now = ctx.now ?? (() => new Date());
   const [year, month, day] = date.split("-").map(Number);
   const at = zonedToUtc({ year, month, day, hour: clock.hour, minute: clock.minute }, poll.timezone);
@@ -228,6 +229,8 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
       announcementError = err?.message ?? String(err);
       ctx.log?.warn?.("Could not announce the planned session:", announcementError);
     }
+  } else {
+    announcementError = "the announcement channel is unavailable";
   }
 
   try {

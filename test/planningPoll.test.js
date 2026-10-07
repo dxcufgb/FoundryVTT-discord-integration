@@ -247,3 +247,19 @@ test("a failing announcement still closes the poll and is reported", async () =>
   assert.deepEqual(env.pollMessage.edits[0].components, []);
   assert.match(last(time).content, /the announcement failed \(Missing Access\)/);
 });
+
+test("only a date with the most votes can be finalized, and an unavailable channel is reported", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-05", "2026-03-06"]);
+  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  const losing = component(env, { customId: "poll:time:m1:2026-03-05", values: ["19:00"], messageId: "eph" });
+  await handleInteraction(losing, env.ctx, { log: quietLog });
+  assert.match(last(losing).content, /no longer has the most votes/);
+  assert.ok(env.state.poll("g1", "m1"));
+  assert.equal(env.created.length, 0);
+
+  const ok = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
+  ok.channel = null;
+  await handleInteraction(ok, env.ctx, { log: quietLog });
+  assert.match(last(ok).content, /the announcement failed \(the announcement channel is unavailable\)/);
+});
