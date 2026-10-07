@@ -276,3 +276,14 @@ test("a poll that another interaction already claimed is not finalized twice", a
   assert.equal(env.created.length, 0);
   assert.equal(env.state.campaign("g1", "lost-mines").nextSession, null);
 });
+
+test("a failing acknowledgement leaves the poll open", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-06"]);
+  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
+  time.deferUpdate = async () => { throw new Error("Unknown interaction"); };
+  await handleInteraction(time, env.ctx, { log: quietLog });
+  assert.ok(env.state.poll("g1", "m1"));
+  assert.equal(env.created.length, 0);
+});
