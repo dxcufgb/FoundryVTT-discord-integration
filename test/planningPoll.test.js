@@ -263,3 +263,16 @@ test("only a date with the most votes can be finalized, and an unavailable chann
   await handleInteraction(ok, env.ctx, { log: quietLog });
   assert.match(last(ok).content, /the announcement failed \(the announcement channel is unavailable\)/);
 });
+
+test("a poll that another interaction already claimed is not finalized twice", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-06"]);
+  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  const realDelete = env.state.deletePoll.bind(env.state);
+  env.state.deletePoll = () => { realDelete("g1", "m1"); return false; }; // someone else got there first
+  const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
+  await handleInteraction(time, env.ctx, { log: quietLog });
+  assert.match(last(time).content, /no longer active/);
+  assert.equal(env.created.length, 0);
+  assert.equal(env.state.campaign("g1", "lost-mines").nextSession, null);
+});

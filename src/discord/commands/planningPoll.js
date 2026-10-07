@@ -184,7 +184,7 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   if (at.getTime() <= now().getTime()) return interaction.reply(ephemeral(`That moment (<t:${Math.floor(at.getTime() / 1000)}:F>) is in the past. Pick a later time.`));
 
   // From here the poll is settled: closing it first keeps a second click from deciding it twice.
-  state.deletePoll(guildId, poll.id);
+  if (!state.deletePoll(guildId, poll.id)) return interaction.reply(ephemeral(NO_POLL_MESSAGE));
   if (modal) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   else await interaction.deferUpdate();
   const reply = (content) => (modal ? interaction.editReply({ content, allowedMentions: { parse: [] } }) : interaction.editReply({ content, components: [], allowedMentions: { parse: [] } }));
