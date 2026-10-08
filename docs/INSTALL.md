@@ -138,7 +138,7 @@ sudo journalctl -u foundryvtt-discord-bot-update                                
 systemctl list-timers foundryvtt-discord-bot-update.timer                                 # when it runs next
 ```
 
-Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto-update` turns it off) to an unattended install. Re-running the installer keeps the current choice. The updater runs as root, so the installer makes the program files root-owned (only `data/` and `.env` belong to the bot's account), and both turning it on and every run refuse an install folder, file or parent folder that another account can change, such as an in-place install from a checkout in your home folder.
+Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto-update` turns it off) to an unattended install. Re-running the installer keeps the current choice. The updater runs as root, so the installer makes the program files root-owned (only `data/` and `.env` belong to the bot's account), and both turning it on and every run refuse an install folder, file or parent folder that another account can change, such as an in-place install from a checkout in your home folder. The same goes for the Node.js the bot runs with: install it system-wide (distribution packages or NodeSource), not with nvm in a home folder, or turning on automatic updates is refused.
 
 **Windows** (a Scheduled Task, *FoundryVTT Discord integration update*, daily around 04:00 with up to an hour of random delay, running as SYSTEM):
 

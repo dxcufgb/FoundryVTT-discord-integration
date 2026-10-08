@@ -148,6 +148,17 @@ enable_auto_update() { # enable_auto_update <install dir>
   local bad
   bad="$(unsafe_path "$1")"
   [[ -z "$bad" ]] || die "$bad can be changed by an account other than root, and the auto-updater runs as root. Install to a folder only root can write (the installer's default /opt/$APP_NAME), not in place from a checkout."
+  # The updater runs the bot's Node.js as root as well.
+  local node p
+  node="$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' "/etc/systemd/system/$SERVICE.service" 2>/dev/null || true)"
+  [[ -x "$node" ]] || node="$(command -v node || true)"
+  p="$(realpath -e "$node" 2>/dev/null)" || die "Node.js not found."
+  while [[ "$p" != / ]]; do
+    if [[ -n "$(find "$p" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]]; then
+      die "$p can be changed by an account other than root, and the auto-updater runs this Node.js as root. Install Node.js system-wide (from your distribution or NodeSource), not with nvm in a home folder."
+    fi
+    p="$(dirname "$p")"
+  done
   sed -e "s|__INSTALL_DIR__|$1|g" "$1/deploy/linux/$UPDATER.service" > "/etc/systemd/system/$UPDATER.service"
   cp "$1/deploy/linux/$UPDATER.timer" "/etc/systemd/system/$UPDATER.timer"
   chmod 644 "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"

@@ -68,6 +68,10 @@ jobs:
           # The runner image leaves /opt writable by the runner account; on a normal system it is root-only, which the
           # auto-updater (it runs as root) checks for every parent folder of the install folder.
           sudo chown root:root /opt && sudo chmod go-w /opt
+          # Likewise the runner's Node.js (the root updater refuses one another account can change).
+          v="$(dirname "$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")")"
+          sudo chown -R root:root "$v" && sudo chmod -R go-w "$v"
+          p="$v"; while p="$(dirname "$p")"; [ "$p" != / ]; do sudo chown root:root "$p"; sudo chmod go-w "$p"; done
           sudo env "PATH=$PATH" ./deploy/linux/install.sh --non-interactive --no-start \
             --token dummy-token --client-id 123456789012345678 --guild-id 987654321098765432 \
             --dir /opt/foundryvtt-discord-integration --user "$USER" --data-path "$HOME/foundrydata" \

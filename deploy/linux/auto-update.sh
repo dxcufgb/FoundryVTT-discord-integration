@@ -58,6 +58,15 @@ main() {
   node="$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' "$unit" 2>/dev/null || true)"
   [[ -x "$node" ]] || node="$(command -v node || true)"
   [[ -n "$node" ]] || die "Node.js not found."
+  # Node.js runs as root here too: refuse one that (or whose folders) another account can change, such as nvm's.
+  node="$(realpath -e "$node" 2>/dev/null)" || die "Node.js not found."
+  parent="$node"
+  while [[ "$parent" != / ]]; do
+    if [[ -n "$(find "$parent" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]]; then
+      die "$parent can be changed by an account other than root, so its Node.js must not run as root. Install Node.js system-wide (from your distribution or NodeSource)."
+    fi
+    parent="$(dirname "$parent")"
+  done
   # Under systemd PATH is minimal; the installer looks for node on PATH, so put this one first.
   PATH="$(dirname "$node"):$PATH"
 
