@@ -12,11 +12,14 @@
 ;   - installs the bot under Program Files, writes the configuration to
 ;     %ProgramData%\FoundryVTT Discord integration\.env (kept on upgrades)
 ;   - registers a Scheduled Task that starts the bot at boot and restarts it on failure
+;   - optionally (unchecked by default) registers a daily task that installs new releases
+;     (deploy\windows\auto-update.ps1); an upgrade keeps whatever was chosen before
 ;
 ; Silent install (all pages skipped, values from the command line):
 ;   setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DiscordToken=... /ClientId=... [/GuildId=...]
 ;             [/FoundryUrl=http://localhost:30000] [/DataPath="C:\Users\me\AppData\Local\FoundryVTT"]
-;             [/Timezone=Europe/Stockholm] [/Interval=30]
+;             [/Timezone=Europe/Stockholm] [/Interval=30] [/AutoUpdate=1|0]
+; /AutoUpdate=1 turns automatic updates on, /AutoUpdate=0 off; without it the current choice is kept.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
@@ -28,6 +31,7 @@
 #define MyAppPublisher "Dxcufgb"
 #define MyAppURL "https://github.com/dxcufgb/FoundryVTT-discord-integration"
 #define TaskName "FoundryVTT Discord integration"
+#define UpdateTaskName "FoundryVTT Discord integration update"
 #define NodeVersion "22.22.0"
 
 [Setup]
@@ -52,9 +56,14 @@ ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 UninstallDisplayName={#MyAppName}
 CloseApplications=no
+; The auto-update choice is read from the scheduled task itself, not from the last setup's task list.
+UsePreviousTasks=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "autoupdate"; Description: "Install new releases automatically (checks GitHub once a day; keeps the configuration)"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\.env,\data,\.git,\.github,\dist,*.tar.gz,*.zip"
@@ -85,6 +94,8 @@ var
   DownloadPage: TDownloadWizardPage;
   NodeExe: String;
   NodeNeeded: Boolean;
+  AutoUpdateWasOn: Boolean;
+  TasksPrefilled: Boolean;
 
 function GetNodeExe(Param: String): String;
 begin
@@ -181,8 +192,12 @@ begin
 end;
 
 function InitializeSetup: Boolean;
+var
+  ResultCode: Integer;
 begin
   Result := True;
+  AutoUpdateWasOn := Exec('schtasks.exe', '/Query /TN "{#UpdateTaskName}"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  Log('Automatic updates currently on: ' + IntToStr(Integer(AutoUpdateWasOn)));
   NodeNeeded := not FindNode(NodeExe);
   if NodeNeeded and not WizardSilent then
   begin
@@ -314,12 +329,41 @@ begin
   end;
 end;
 
+{ Pre-tick the auto-update box when the update task already exists, once, so the user can still untick it. }
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpSelectTasks) and not TasksPrefilled then
+  begin
+    TasksPrefilled := True;
+    if AutoUpdateWasOn then
+      WizardSelectTasks('autoupdate');
+  end;
+end;
+
+{ /AutoUpdate=1|0 wins; a silent upgrade keeps the current choice; otherwise the checkbox decides. }
+function WantAutoUpdate: Boolean;
+var
+  P: String;
+begin
+  P := ExpandConstant('{param:AutoUpdate|}');
+  if P = '1' then
+    Result := True
+  else if P = '0' then
+    Result := False
+  else if WizardSilent then
+    Result := AutoUpdateWasOn or WizardIsTaskSelected('autoupdate')
+  else
+    Result := WizardIsTaskSelected('autoupdate');
+end;
+
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
   Result := MemoDirInfo + NewLine + NewLine +
     'Configuration file:' + NewLine + Space + EnvFile + NewLine + NewLine +
     'Foundry:' + NewLine + Space + Trim(FoundryPage.Values[0]) + NewLine + Space + 'Data folder: ' + Trim(FoundryPage.Values[1]) + NewLine + NewLine +
     'Startup:' + NewLine + Space + 'Scheduled task "{#TaskName}" runs the bot at boot as SYSTEM.';
+  if WantAutoUpdate then
+    Result := Result + NewLine + NewLine + 'Automatic updates:' + NewLine + Space + 'Scheduled task "{#UpdateTaskName}" installs new releases daily.';
   if NodeNeeded then
     Result := Result + NewLine + NewLine + 'Node.js {#NodeVersion} will be downloaded and installed first.';
 end;
@@ -376,6 +420,25 @@ begin
     Log('install-task.ps1 succeeded');
 end;
 
+{ Register or remove the daily update task with auto-update.ps1 (it logs to auto-update.log next to .env). }
+procedure ConfigureAutoUpdate;
+var
+  Want: Boolean;
+  Mode: String;
+  ResultCode: Integer;
+begin
+  Want := WantAutoUpdate;
+  if Want = AutoUpdateWasOn then
+    Exit;
+  if Want then Mode := '-Enable' else Mode := '-Disable';
+  WizardForm.StatusLabel.Caption := 'Configuring automatic updates...';
+  if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\deploy\windows\auto-update.ps1') + '" ' + Mode +
+      ' -InstallDir "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+    SuppressibleMsgBox('Automatic updates could not be configured (exit code ' + IntToStr(ResultCode) + '). Details: ' + ConfigDir + '\auto-update.log', mbError, MB_OK, IDOK)
+  else
+    Log('auto-update.ps1 ' + Mode + ' succeeded');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -384,6 +447,7 @@ begin
       Log('Node.js is missing and cannot be installed silently; the scheduled task will fail until Node.js 20+ is installed.');
     WriteEnvFile;
     RegisterTask;
+    ConfigureAutoUpdate;
   end;
 end;
 

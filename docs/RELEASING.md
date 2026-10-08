@@ -8,6 +8,8 @@ Releases are built by GitHub Actions ([`.github/workflows/release.yml`](../.gith
 - `foundryvtt-discord-integration-<version>-setup.exe` — Windows installer built with Inno Setup from `deploy/windows/installer.iss` (a second job on a Windows runner)
 - `SHA256SUMS.txt` and `SHA256SUMS-setup.txt`
 
+Installations with [automatic updates](INSTALL.md#automatic-updates) turned on pick up the release within a day: they look for exactly these asset names (`foundryvtt-discord-integration-<version>-linux.tar.gz`, `-windows.zip`, `-setup.exe`) and refuse a bundle that has no matching line in `SHA256SUMS.txt` / `SHA256SUMS-setup.txt`, so keep the names and the checksum files. Only full releases with a plain `vX.Y.Z` tag are installed automatically; pre-releases are not. Note that the `setup.exe` is attached by a second job a few minutes after the release is created, so a Windows check in that window logs that the release has no setup.exe yet and tries again the next day.
+
 The bundles contain no native code, so one build serves both platforms. The Node.js version the Windows installer downloads when none is present is the `NodeVersion` define at the top of `installer.iss`; bump it now and then to the current LTS.
 
 ## Procedure

@@ -18,6 +18,9 @@
   installer keeps it under %ProgramData%\FoundryVTT Discord integration).
   -NodeExe uses that node.exe instead of the one on the PATH.
   -LogFile appends everything this script prints to a file (used by setup.exe).
+  -AutoUpdate also turns on automatic updates (auto-update.ps1 -Enable: a daily task
+  that installs new releases). Re-running this script without it keeps the current choice;
+  turn them off with .\deploy\windows\auto-update.ps1 -Disable.
 
   Needs Node.js 20 or newer (https://nodejs.org) and a filled-in .env.
 #>
@@ -28,6 +31,7 @@ param(
   [string]$NodeExe,
   [string]$LogFile,
   [switch]$SkipConfigCheck,
+  [switch]$AutoUpdate,
   [string]$TaskName = "FoundryVTT Discord integration"
 )
 $ErrorActionPreference = "Stop"
@@ -37,7 +41,7 @@ if ($LogFile) {
 }
 
 try {
-  Write-Host "install-task.ps1 starting at $(Get-Date -Format s) (InstallDir=$InstallDir, EnvFile=$EnvFile, NodeExe=$NodeExe, RunAsUser=$RunAsUser)"
+  Write-Output "install-task.ps1 starting at $(Get-Date -Format s) (InstallDir=$InstallDir, EnvFile=$EnvFile, NodeExe=$NodeExe, RunAsUser=$RunAsUser)"
 
   if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Run this script from an elevated (Administrator) PowerShell."
@@ -48,27 +52,27 @@ try {
   if (-not $node) { throw "Node.js was not found on the PATH. Install Node.js 20 or newer from https://nodejs.org and reopen PowerShell." }
   $major = [int]((& $node -p "process.versions.node.split('.')[0]").Trim())
   if ($major -lt 20) { throw "Node.js 20 or newer is required (found $(& $node --version))." }
-  Write-Host "Using Node.js $(& $node --version) at $node"
+  Write-Output "Using Node.js $(& $node --version) at $node"
 
   $envFile = if ($EnvFile) { $EnvFile } else { Join-Path $InstallDir ".env" }
   $envArgs = if ($EnvFile) { " --env `"$EnvFile`"" } else { "" }
   if (-not (Test-Path $envFile)) {
     if ($EnvFile) { throw "Configuration file $EnvFile does not exist." }
     Copy-Item (Join-Path $InstallDir ".env.example") $envFile
-    Write-Host ""
-    Write-Host "Created $envFile from the example. Fill in DISCORD_TOKEN, DISCORD_CLIENT_ID and FOUNDRY_DATA_PATH, then run this script again."
+    Write-Output ""
+    Write-Output "Created $envFile from the example. Fill in DISCORD_TOKEN, DISCORD_CLIENT_ID and FOUNDRY_DATA_PATH, then run this script again."
     exit 0
   }
 
   if (-not (Test-Path (Join-Path $InstallDir "node_modules"))) {
-    Write-Host "Installing dependencies"
+    Write-Output "Installing dependencies"
     Push-Location $InstallDir
     try { & npm ci --omit=dev --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw "npm ci failed" } } finally { Pop-Location }
   }
   New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "data") | Out-Null
 
   if (-not $SkipConfigCheck) {
-    Write-Host "Checking configuration"
+    Write-Output "Checking configuration"
     Push-Location $InstallDir
     try {
       if ($EnvFile) { & $node scripts\check-config.js --env $EnvFile } else { & $node scripts\check-config.js }
@@ -119,7 +123,7 @@ try {
 "@
 
   if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-    Write-Host "Replacing the existing task '$TaskName'"
+    Write-Output "Replacing the existing task '$TaskName'"
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
   }
@@ -134,15 +138,19 @@ try {
   Start-ScheduledTask -TaskName $TaskName
   Start-Sleep -Seconds 3
   $state = (Get-ScheduledTask -TaskName $TaskName).State
-  Write-Host ""
-  Write-Host "Installed scheduled task '$TaskName' (state: $state)."
-  Write-Host "The bot starts with Windows. Manage it in Task Scheduler, or:"
-  Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"
-  Write-Host "  Stop-ScheduledTask  -TaskName '$TaskName'   # then Start again after editing .env"
-  Write-Host "Output is not shown anywhere by the task; run deploy\windows\start.bat in a terminal to watch the log."
+  Write-Output ""
+  Write-Output "Installed scheduled task '$TaskName' (state: $state)."
+  Write-Output "The bot starts with Windows. Manage it in Task Scheduler, or:"
+  Write-Output "  Start-ScheduledTask -TaskName '$TaskName'"
+  Write-Output "  Stop-ScheduledTask  -TaskName '$TaskName'   # then Start again after editing .env"
+  Write-Output "Output is not shown anywhere by the task; run deploy\windows\start.bat in a terminal to watch the log."
+  if ($AutoUpdate) {
+    & (Join-Path $PSScriptRoot "auto-update.ps1") -Enable -InstallDir $InstallDir -TaskName $TaskName
+    if ($LASTEXITCODE -ne 0) { throw "Automatic updates could not be turned on; see $env:ProgramData\FoundryVTT Discord integration\auto-update.log" }
+  }
 } catch {
-  Write-Host "ERROR: $($_.Exception.Message)"
-  Write-Host $_.ScriptStackTrace
+  Write-Output "ERROR: $($_.Exception.Message)"
+  Write-Output $_.ScriptStackTrace
   if ($LogFile) { Stop-Transcript | Out-Null }
   exit 1
 }

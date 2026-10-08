@@ -18,6 +18,7 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - `src/state.js` — persistent JSON state (atomic writes); `MESSAGE_TYPES` lives here.
 - `src/messages.js`, `src/notifier.js` — embeds and posting.
 - `src/campaigns.js`, `src/sessions.js`, `src/restartWindow.js` — domain logic.
+- `src/selfUpdate.js` + `scripts/self-update.js` — opt-in auto-update (release check, download, SHA-256); `deploy/linux/auto-update.sh` and `deploy/windows/auto-update.ps1` install it.
 - `deploy/` — Linux (systemd) and Windows (Task Scheduler, Inno Setup) installers.
 - `docs/` — `COMMANDS.md`, `INSTALL.md`, `RELEASING.md`.
 

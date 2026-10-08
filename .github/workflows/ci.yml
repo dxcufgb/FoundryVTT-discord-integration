@@ -1,7 +1,9 @@
 # Runs on every push and pull request:
 #   - unit tests on Linux and Windows, Node 20 and 22
-#   - the Linux installer end to end (non-interactive, real systemd unit, then uninstall)
-#   - the Windows installer: compiled with Inno Setup, installed silently, checked, uninstalled
+#   - the Linux installer end to end (non-interactive, real systemd unit, auto-update from the
+#     latest GitHub release through the real systemd units, then uninstall)
+#   - the Windows installer: compiled with Inno Setup, installed silently with auto-update on,
+#     updated to the latest GitHub release by auto-update.ps1, checked, uninstalled
 name: CI
 
 on:
@@ -37,7 +39,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Entry point and scripts parse
-        run: node --check src/index.js && node --check scripts/register-commands.js && node --check scripts/check-config.js
+        run: node --check src/index.js && node --check scripts/register-commands.js && node --check scripts/check-config.js && node --check scripts/self-update.js
 
   linux-installer:
     name: Linux installer (systemd)
@@ -49,8 +51,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - name: Shell syntax
-        run: bash -n deploy/linux/install.sh
+      - name: Shell syntax and shellcheck
+        run: |
+          bash -n deploy/linux/install.sh && bash -n deploy/linux/auto-update.sh
+          shellcheck deploy/linux/*.sh
       - name: Fake Foundry data folder
         run: |
           mkdir -p "$HOME/foundrydata/Data/modules/lib-wrapper" "$HOME/foundrydata/Data/systems/dnd5e" "$HOME/foundrydata/Config"
@@ -87,15 +91,59 @@ jobs:
       - name: Re-run interactively on a pseudo-terminal, accepting every default
         # Regression test: answering the hidden token prompt with Enter must keep the stored token, not end the script.
         run: |
-          printf '\n\n\n\n\n\n\n\n\n\n\n\n' | sudo env "PATH=$PATH" script -qefc "./deploy/linux/install.sh --no-start --dir /opt/foundryvtt-discord-integration" /dev/null
+          printf '\n\n\n\n\n\n\n\n\n\n\n\n\n\n' | sudo env "PATH=$PATH" script -qefc "./deploy/linux/install.sh --no-start --dir /opt/foundryvtt-discord-integration" /dev/null
           sudo grep -q '^DISCORD_TOKEN=dummy-token$' /opt/foundryvtt-discord-integration/.env
           sudo grep -q '^DISCORD_CLIENT_ID=123456789012345678$' /opt/foundryvtt-discord-integration/.env
           sudo grep -q '^TIMEZONE=Europe/Stockholm$' /opt/foundryvtt-discord-integration/.env
+      - name: Auto-update is off by default, can be turned on, and survives an upgrade
+        run: |
+          set -x
+          if systemctl is-enabled foundryvtt-discord-bot-update.timer; then echo "auto-update must be off by default"; exit 1; fi
+          sudo ./deploy/linux/install.sh --enable-auto-update --dir /opt/foundryvtt-discord-integration
+          systemctl is-enabled foundryvtt-discord-bot-update.timer
+          systemctl list-timers foundryvtt-discord-bot-update.timer --no-pager
+          sudo env "PATH=$PATH" ./deploy/linux/install.sh --non-interactive --no-start --dir /opt/foundryvtt-discord-integration
+          systemctl is-enabled foundryvtt-discord-bot-update.timer
+      - name: Auto-update to the latest release through the real systemd service
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          D=/opt/foundryvtt-discord-integration
+          sudo install -d -m 700 /etc/foundryvtt-discord-integration
+          printf '%s\n' "$GITHUB_TOKEN" | sudo tee /etc/foundryvtt-discord-integration/github-token >/dev/null
+          sudo chmod 600 /etc/foundryvtt-discord-integration/github-token
+          sudo systemctl stop foundryvtt-discord-bot
+          echo "EXTRA_SETTING=kept" | sudo tee -a "$D/.env" >/dev/null
+          echo marker | sudo tee "$D/data/marker" >/dev/null
+          BEFORE="$(sudo sha256sum "$D/.env")"
+          sudo "$D/deploy/linux/auto-update.sh" --check
+          sudo systemctl start foundryvtt-discord-bot-update.service || { sudo journalctl -u foundryvtt-discord-bot-update --no-pager | tail -n 60; exit 1; }
+          sudo journalctl -u foundryvtt-discord-bot-update --no-pager | tail -n 30
+          sudo journalctl -u foundryvtt-discord-bot-update --no-pager | grep -q 'Updated to version'
+          if sudo journalctl -u foundryvtt-discord-bot-update --no-pager | grep -qF "$GITHUB_TOKEN"; then echo "the token was logged"; exit 1; fi
+          test "$(sudo sha256sum "$D/.env")" = "$BEFORE"
+          test "$(sudo stat -c %a "$D/.env")" = "600"
+          sudo grep -q '^marker$' "$D/data/marker"
+          if grep -q '"version": "1.0.0"' "$D/package.json"; then echo "version did not change"; exit 1; fi
+          systemctl is-enabled foundryvtt-discord-bot-update.timer
+          # Nothing newer now: a second run is a no-op.
+          sudo systemctl start foundryvtt-discord-bot-update.service
+          sudo journalctl -u foundryvtt-discord-bot-update --no-pager | tail -n 3 | grep -q 'Up to date'
+      - name: Turn auto-update off and on again
+        run: |
+          sudo ./deploy/linux/install.sh --disable-auto-update
+          test ! -f /etc/systemd/system/foundryvtt-discord-bot-update.timer
+          if systemctl is-enabled foundryvtt-discord-bot-update.timer; then echo "timer still enabled"; exit 1; fi
+          sudo ./deploy/linux/install.sh --enable-auto-update --dir /opt/foundryvtt-discord-integration
       - name: Uninstall
         run: |
           sudo ./deploy/linux/install.sh --uninstall --purge --dir /opt/foundryvtt-discord-integration
           test ! -f /etc/systemd/system/foundryvtt-discord-bot.service
+          test ! -f /etc/systemd/system/foundryvtt-discord-bot-update.timer
+          test ! -f /etc/systemd/system/foundryvtt-discord-bot-update.service
           test ! -d /opt/foundryvtt-discord-integration
+          test ! -d /etc/foundryvtt-discord-integration
 
   windows-installer:
     name: Windows installer (Inno Setup)
@@ -107,6 +155,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Force -Scope CurrentUser }
+          $issues = Invoke-ScriptAnalyzer -Path deploy\windows -Recurse
+          $issues | Format-Table -AutoSize | Out-String -Width 200
+          if ($issues) { throw "PSScriptAnalyzer found $($issues.Count) issue(s)" }
       - name: Production dependencies for the payload
         run: npm ci --omit=dev --no-audit --no-fund
       - name: Compile the installer
@@ -121,7 +176,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\FoundryVTT\Data\modules\m1", "$env:LOCALAPPDATA\FoundryVTT\Config" | Out-Null
           Set-Content "$env:LOCALAPPDATA\FoundryVTT\Data\modules\m1\module.json" '{"id":"m1","title":"M1","version":"1.0.0"}'
           $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
-          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup.log','/DiscordToken=dummy-token','/ClientId=123456789012345678',"/DataPath=$env:LOCALAPPDATA\FoundryVTT",'/Timezone=Europe/Stockholm','/Interval=20' -Wait -PassThru
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup.log','/DiscordToken=dummy-token','/ClientId=123456789012345678',"/DataPath=$env:LOCALAPPDATA\FoundryVTT",'/Timezone=Europe/Stockholm','/Interval=20','/AutoUpdate=1' -Wait -PassThru
           Get-Content setup.log | Select-Object -Last 40
           $taskLog = "$env:ProgramData\FoundryVTT Discord integration\install-task.log"
           if (Test-Path $taskLog) { "--- install-task.log ---"; Get-Content $taskLog }
@@ -142,6 +197,41 @@ jobs:
           & node "$app\scripts\check-config.js" --env $envFile
           if ($LASTEXITCODE -ne 0) { throw "check-config failed" }
           Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+      - name: Auto-update to the latest release (Windows PowerShell 5.1)
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cfg = "$env:ProgramData\FoundryVTT Discord integration"
+          $app = "${env:ProgramFiles}\FoundryVTT Discord integration"
+          $upd = Get-ScheduledTask -TaskName "FoundryVTT Discord integration update"
+          "Update task: $($upd.Actions[0].Execute) $($upd.Actions[0].Arguments)"
+          if ($upd.Actions[0].Arguments -notmatch 'auto-update\.ps1') { throw "update task does not run auto-update.ps1" }
+          if ($upd.Principal.UserId -notmatch 'SYSTEM|S-1-5-18') { throw "update task does not run as SYSTEM" }
+          Set-Content -Path "$cfg\github-token" -Value $env:GITHUB_TOKEN -NoNewline
+          Add-Content -Path "$cfg\.env" -Value "EXTRA_SETTING=kept"
+          Set-Content -Path "$cfg\data\marker" -Value "marker"
+          $before = (Get-FileHash "$cfg\.env").Hash
+          Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+          & "$app\deploy\windows\auto-update.ps1" -Check
+          if ($LASTEXITCODE -ne 0) { Get-Content "$cfg\auto-update.log"; throw "check failed" }
+          $acl = (Get-Acl "$cfg\github-token").Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
+          "Token file ACL: $($acl -join ', ')"
+          if ($acl | Where-Object { $_ -notin 'S-1-5-18', 'S-1-5-32-544' }) { throw "token file is readable by others" }
+          & "$app\deploy\windows\auto-update.ps1"
+          $code = $LASTEXITCODE
+          Get-Content "$cfg\auto-update.log"
+          if ($code -ne 0) { throw "auto-update failed" }
+          if (Select-String -Path "$cfg\auto-update.log" -SimpleMatch $env:GITHUB_TOKEN -Quiet) { throw "the token was logged" }
+          if (-not (Select-String -Path "$cfg\auto-update.log" -Pattern 'Updated to version' -Quiet)) { throw "no update happened" }
+          if ((Get-FileHash "$cfg\.env").Hash -ne $before) { throw ".env changed" }
+          if (-not (Test-Path "$cfg\data\marker")) { throw "data folder lost" }
+          $version = (Get-Content "$app\package.json" -Raw | ConvertFrom-Json).version
+          "Installed version now: $version"
+          if ($version -eq "1.0.0") { throw "version did not change" }
+          if (-not (Get-ScheduledTask -TaskName "FoundryVTT Discord integration update" -ErrorAction SilentlyContinue)) { throw "update task lost by the upgrade" }
+          Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
       - name: Uninstall silently
         shell: pwsh
         run: |
@@ -150,5 +240,6 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "uninstaller exited with $($p.ExitCode)" }
           Start-Sleep -Seconds 3
           if (Get-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue) { throw "scheduled task still exists" }
+          if (Get-ScheduledTask -TaskName "FoundryVTT Discord integration update" -ErrorAction SilentlyContinue) { throw "update task still exists" }
           if (Test-Path "$env:ProgramData\FoundryVTT Discord integration") { throw "config folder still exists" }
           if (Test-Path "${env:ProgramFiles}\FoundryVTT Discord integration\src") { throw "program files still exist" }

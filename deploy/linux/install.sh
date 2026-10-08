@@ -11,6 +11,11 @@
 #   sudo ./deploy/linux/install.sh --non-interactive --token <bot token> --client-id <id> \
 #        --data-path /home/foundry/foundrydata [--user foundry] [--dir /opt/foundryvtt-discord-integration] \
 #        [--url http://localhost:30000] [--guild-id <id>] [--timezone Europe/Stockholm] [--interval 30] [--no-start]
+#        [--auto-update | --no-auto-update]
+#
+# Automatic updates (opt-in; a daily systemd timer installs new releases, see docs/INSTALL.md):
+#   sudo ./deploy/linux/install.sh --enable-auto-update | --disable-auto-update [--dir <install folder>]
+#   (re-running the installer keeps the current choice unless --auto-update/--no-auto-update is given)
 #
 # Remove again:
 #   sudo ./deploy/linux/install.sh --uninstall [--purge]      (--purge also deletes the files, .env and data)
@@ -23,6 +28,7 @@ set -euo pipefail
 REPO="dxcufgb/FoundryVTT-discord-integration"
 SERVICE="foundryvtt-discord-bot"
 APP_NAME="foundryvtt-discord-integration"
+UPDATER="$SERVICE-update"
 
 # --- output helpers -------------------------------------------------------------------------------------------
 if [[ -t 1 ]]; then BOLD=$'\e[1m'; DIM=$'\e[2m'; GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; RESET=$'\e[0m'; else BOLD=""; DIM=""; GREEN=""; YELLOW=""; RED=""; RESET=""; fi
@@ -48,8 +54,10 @@ APP_PATH=""
 TIMEZONE=""
 INTERVAL=""
 VERSION="latest"
+AUTO_UPDATE=""   # empty: keep the current choice (ask when interactive); 1 / 0: turn on / off
+UPDATER_ONLY=0
 
-usage() { sed -n '2,24p' "$0"; }
+usage() { sed -n '2,25p' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --non-interactive|-y) INTERACTIVE=0; shift ;;
@@ -67,6 +75,10 @@ while [[ $# -gt 0 ]]; do
     --timezone) TIMEZONE="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
+    --auto-update) AUTO_UPDATE=1; shift ;;
+    --no-auto-update) AUTO_UPDATE=0; shift ;;
+    --enable-auto-update) AUTO_UPDATE=1; UPDATER_ONLY=1; shift ;;
+    --disable-auto-update) AUTO_UPDATE=0; UPDATER_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
@@ -112,19 +124,46 @@ ask_yn() { # ask_yn "Question" default(y|n) -> returns 0 for yes
   [[ "$answer" =~ ^[Yy] ]]
 }
 
+# --- automatic updates (systemd timer + oneshot service running deploy/linux/auto-update.sh) ---------------------
+auto_update_on() { systemctl is-enabled --quiet "$UPDATER.timer" 2>/dev/null; }
+enable_auto_update() { # enable_auto_update <install dir>
+  [[ -f "$1/deploy/linux/auto-update.sh" && -f "$1/scripts/self-update.js" ]] || die "$1 has no auto-updater (install a newer version first)."
+  sed -e "s|__INSTALL_DIR__|$1|g" "$1/deploy/linux/$UPDATER.service" > "/etc/systemd/system/$UPDATER.service"
+  cp "$1/deploy/linux/$UPDATER.timer" "/etc/systemd/system/$UPDATER.timer"
+  chmod 644 "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"
+  systemctl daemon-reload
+  systemctl enable --now "$UPDATER.timer" >/dev/null 2>&1 || systemctl enable --now "$UPDATER.timer"
+  ok "Automatic updates on: new releases are installed daily (log: journalctl -u $UPDATER)"
+}
+disable_auto_update() {
+  systemctl disable --now "$UPDATER.timer" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"
+  systemctl daemon-reload
+  ok "Automatic updates off"
+}
+dir_from_unit() { sed -n 's/^WorkingDirectory=//p' "/etc/systemd/system/$SERVICE.service" 2>/dev/null || true; }
+
+if [[ $UPDATER_ONLY -eq 1 ]]; then
+  INSTALL_DIR="${INSTALL_DIR:-$(dir_from_unit)}"
+  INSTALL_DIR="${INSTALL_DIR:-/opt/$APP_NAME}"
+  if [[ $AUTO_UPDATE -eq 1 ]]; then enable_auto_update "${INSTALL_DIR%/}"; else disable_auto_update; fi
+  exit 0
+fi
+
 # --- uninstall ------------------------------------------------------------------------------------------------
 if [[ $UNINSTALL -eq 1 ]]; then
   step "Removing the $SERVICE service"
   UNIT=/etc/systemd/system/$SERVICE.service
-  DIR_FROM_UNIT="$(sed -n 's/^WorkingDirectory=//p' "$UNIT" 2>/dev/null || true)"
+  DIR_FROM_UNIT="$(dir_from_unit)"
   INSTALL_DIR="${INSTALL_DIR:-${DIR_FROM_UNIT:-/opt/$APP_NAME}}"
+  if [[ -f "/etc/systemd/system/$UPDATER.timer" ]]; then disable_auto_update; fi
   systemctl disable --now "$SERVICE" 2>/dev/null || true
   rm -f "$UNIT"
   systemctl daemon-reload
   ok "Service removed"
   if [[ -d "$INSTALL_DIR" ]]; then
     if [[ $PURGE -eq 1 ]] || ask_yn "Also delete $INSTALL_DIR (including .env and the data folder)?" n; then
-      rm -rf "$INSTALL_DIR"; ok "Deleted $INSTALL_DIR"
+      rm -rf "$INSTALL_DIR" "/etc/${APP_NAME:?}"; ok "Deleted $INSTALL_DIR"
     else
       say "  Files kept in $INSTALL_DIR"
     fi
@@ -137,7 +176,7 @@ say "${DIM}Press Enter to accept the value in [brackets].${RESET}"
 
 # --- 1. where do the files come from? -------------------------------------------------------------------------
 step "Locating the bot files"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
+if ! HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"; then HERE="$PWD"; fi
 SOURCE=""
 for candidate in "$HERE/../.." "$HERE" "$PWD"; do
   if [[ -f "$candidate/package.json" && -f "$candidate/src/index.js" ]]; then SOURCE="$(cd "$candidate" && pwd)"; break; fi
@@ -274,6 +313,18 @@ ask TIMEZONE "Timezone for restart windows (IANA name)" "${DEFAULT_TZ:-UTC}"
 ask INTERVAL "Check Foundry every N seconds" "30"
 [[ "$INTERVAL" =~ ^[0-9]+$ && $INTERVAL -ge 5 ]] || die "The interval must be a whole number of at least 5 seconds."
 
+if [[ -z "$AUTO_UPDATE" ]]; then
+  if auto_update_on; then AUTO_DEFAULT=y; else AUTO_DEFAULT=n; fi
+  if [[ $INTERACTIVE -eq 1 ]]; then
+    hint
+    hint "  Automatic updates check GitHub once a day and install a newer release the same way as"
+    hint "  running this installer again (.env and data/ are kept; it rolls back if the update fails)."
+    if ask_yn "Install new releases automatically?" "$AUTO_DEFAULT"; then AUTO_UPDATE=1; else AUTO_UPDATE=0; fi
+  elif [[ $AUTO_DEFAULT == y ]]; then
+    AUTO_UPDATE=1
+  fi
+fi
+
 # --- 5. install files ----------------------------------------------------------------------------------------------
 step "Installing to $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
@@ -338,6 +389,11 @@ if [[ $START -eq 1 ]]; then
 else
   say "  Not started (--no-start). Start it with: sudo systemctl start $SERVICE"
 fi
+if [[ $AUTO_UPDATE == 1 ]]; then
+  enable_auto_update "$INSTALL_DIR"
+elif [[ $AUTO_UPDATE == 0 && -f "/etc/systemd/system/$UPDATER.timer" ]]; then
+  disable_auto_update
+fi
 
 # --- 7. done ---------------------------------------------------------------------------------------------------------
 printf '\n%sInstalled.%s\n\n' "$GREEN$BOLD" "$RESET"
@@ -353,4 +409,10 @@ say
 say "  Useful commands:"
 say "    sudo journalctl -u $SERVICE -f     follow the log"
 say "    sudo systemctl restart $SERVICE    after editing $INSTALL_DIR/.env"
+if [[ $AUTO_UPDATE == 1 ]]; then
+  say "    sudo $INSTALL_DIR/deploy/linux/auto-update.sh --check     is there a newer release? (updates run daily)"
+  say "    sudo $INSTALL_DIR/deploy/linux/install.sh --disable-auto-update"
+else
+  say "    sudo $INSTALL_DIR/deploy/linux/install.sh --enable-auto-update   install new releases automatically"
+fi
 say "    sudo $INSTALL_DIR/deploy/linux/install.sh --uninstall"

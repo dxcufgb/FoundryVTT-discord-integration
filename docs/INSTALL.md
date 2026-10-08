@@ -32,7 +32,7 @@ Unattended installs (scripts, Ansible, CI) pass everything on the command line:
 ```
 sudo ./deploy/linux/install.sh --non-interactive --token <bot token> --client-id <application id> \
   --data-path /home/foundry/foundrydata --user foundry [--guild-id <server id>] \
-  [--url http://localhost:30000] [--timezone Europe/Stockholm] [--interval 30] [--no-start]
+  [--url http://localhost:30000] [--timezone Europe/Stockholm] [--interval 30] [--no-start] [--auto-update]
 ```
 
 Afterwards:
@@ -44,7 +44,7 @@ sudo nano /opt/foundryvtt-discord-integration/.env && sudo systemctl restart fou
 sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --uninstall [--purge]
 ```
 
-Running the installer again upgrades in place and keeps your `.env` and `data/` folder. If Foundry itself runs under systemd, you can make the bot wait for it by adding `After=foundry.service` (your unit's name) to `/etc/systemd/system/foundryvtt-discord-bot.service`.
+Running the installer again upgrades in place and keeps your `.env` and `data/` folder. The installer also asks whether to install new releases automatically (off unless you say yes; see [Automatic updates](#automatic-updates)). If Foundry itself runs under systemd, you can make the bot wait for it by adding `After=foundry.service` (your unit's name) to `/etc/systemd/system/foundryvtt-discord-bot.service`.
 
 ## 3. Install on Windows (setup wizard)
 
@@ -53,7 +53,8 @@ Download `foundryvtt-discord-integration-<version>-setup.exe` from the [latest r
 1. Checks for Node.js 20 or newer and offers to download and install Node.js LTS if it is missing.
 2. Asks for the Discord bot token, application ID and (optional) server ID.
 3. Asks for the Foundry URL, Foundry's user data folder (pre-filled with `%LOCALAPPDATA%\FoundryVTT` when it exists), the timezone (`auto` uses the computer's) and how often to check Foundry.
-4. Installs the bot under `C:\Program Files\FoundryVTT Discord integration`, writes the configuration to `C:\ProgramData\FoundryVTT Discord integration\.env` and registers a Scheduled Task *FoundryVTT Discord integration* that starts the bot at boot (as SYSTEM, without anyone logging in) and restarts it if it stops.
+4. Offers *Install new releases automatically* (unchecked by default; see [Automatic updates](#automatic-updates)).
+5. Installs the bot under `C:\Program Files\FoundryVTT Discord integration`, writes the configuration to `C:\ProgramData\FoundryVTT Discord integration\.env` and registers a Scheduled Task *FoundryVTT Discord integration* that starts the bot at boot (as SYSTEM, without anyone logging in) and restarts it if it stops.
 
 The Start menu folder has shortcuts to **Edit configuration** (stop and start the task afterwards in Task Scheduler), **Check configuration**, and **Run bot in a window (log)** for watching the log live. Running a newer setup upgrades in place and keeps the configuration; uninstalling asks whether to delete it.
 
@@ -61,7 +62,7 @@ Silent install, for scripts:
 
 ```
 setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DiscordToken=<token> /ClientId=<application id> [/GuildId=<server id>] ^
-  [/FoundryUrl=http://localhost:30000] [/DataPath="C:\Users\me\AppData\Local\FoundryVTT"] [/Timezone=Europe/Stockholm] [/Interval=30]
+  [/FoundryUrl=http://localhost:30000] [/DataPath="C:\Users\me\AppData\Local\FoundryVTT"] [/Timezone=Europe/Stockholm] [/Interval=30] [/AutoUpdate=1]
 ```
 
 and `unins000.exe /VERYSILENT [/PurgeConfig=1]` to remove it again.
@@ -109,7 +110,53 @@ The bot must be able to **view** and **send messages** in each chosen channel (c
 
 ## Upgrading
 
-Run the installer for the new version (the Linux one-liner, or the new `setup.exe`). Both upgrade in place and keep `.env` and the data folder, whose `state.json` remembers your channels, windows and which updates were already announced.
+Run the installer for the new version (the Linux one-liner, or the new `setup.exe`). Both upgrade in place and keep the data folder, whose `state.json` remembers your channels, windows and which updates were already announced, and the settings in `.env` (they rewrite the file from the settings they know, so comments and settings the installer does not ask about are reset; [automatic updates](#automatic-updates) keep the file exactly). Or let the bot update itself: see [Automatic updates](#automatic-updates).
+
+## Automatic updates
+
+Off by default. When turned on, the machine checks GitHub once a day for a newer release of the bot and installs it the same way as a manual upgrade, then restarts the bot. Nothing happens when the installed version is current; only a strictly newer full release is installed (drafts and pre-releases are ignored).
+
+Each run:
+
+1. asks `https://api.github.com/repos/dxcufgb/FoundryVTT-discord-integration/releases/latest` for the latest release and compares its version with the installed one (semantic versioning);
+2. downloads the bundle for this platform (`-linux.tar.gz`, `-setup.exe`, or `-windows.zip` for an installation made from the zip) and checks its SHA-256 against the release's `SHA256SUMS.txt` / `SHA256SUMS-setup.txt` (no checksum, no update);
+3. installs it with the release's own installer (`install.sh --non-interactive --no-start` on Linux, `setup.exe /VERYSILENT` on Windows; a zip installation gets the new files copied over the old ones);
+4. puts `.env` back exactly as it was (the installers rewrite it from the settings they know, so comments and extra settings would otherwise be lost); `data/` is never touched;
+5. restarts the bot. If the installer fails, or the bot was running before and does not stay up afterwards, the previous version is restored (Linux and zip installations; a failed `setup.exe` undoes its own changes).
+
+Only one update runs at a time, every request uses HTTPS with a timeout, and nothing is written into Foundry's folders.
+
+**Linux** (a systemd timer, `foundryvtt-discord-bot-update.timer`, daily with up to an hour of random delay; the update runs as root because it runs the installer):
+
+```
+sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --enable-auto-update     # turn on
+sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --disable-auto-update    # turn off
+sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh --check              # is there a newer release?
+sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh                      # update now
+sudo systemctl start foundryvtt-discord-bot-update                                        # update now, as the timer does
+sudo journalctl -u foundryvtt-discord-bot-update                                          # what it did
+systemctl list-timers foundryvtt-discord-bot-update.timer                                 # when it runs next
+```
+
+Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto-update` turns it off) to an unattended install. Re-running the installer keeps the current choice.
+
+**Windows** (a Scheduled Task, *FoundryVTT Discord integration update*, daily around 04:00 with up to an hour of random delay, running as SYSTEM):
+
+- tick *Install new releases automatically* in the setup wizard, or pass `/AutoUpdate=1` (`/AutoUpdate=0` turns it off) to a silent install. A newer setup keeps the current choice;
+- or, from an elevated PowerShell in `C:\Program Files\FoundryVTT Discord integration`:
+
+  ```
+  .\deploy\windows\auto-update.ps1 -Enable     # turn on
+  .\deploy\windows\auto-update.ps1 -Disable    # turn off
+  .\deploy\windows\auto-update.ps1 -Check      # is there a newer release?
+  .\deploy\windows\auto-update.ps1             # update now
+  ```
+
+  For a zip installation, `install-task.ps1 -AutoUpdate` turns it on as well. Because the task runs as SYSTEM, `-Enable` refuses a folder that non-administrators can change; install under Program Files.
+
+The log is `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Uninstalling removes the task (Windows) or the timer (Linux).
+
+**GitHub token (optional).** The repository is public, so no token is needed. GitHub allows 60 anonymous API requests an hour per IP address, which a daily check never gets near. For a private fork, or behind a shared address that runs out, put a token that can read the repository's releases in `/etc/foundryvtt-discord-integration/github-token` (owned by root, `chmod 600`) or `C:\ProgramData\FoundryVTT Discord integration\github-token` (the updater restricts it to Administrators and SYSTEM). It is only ever sent to `api.github.com`, never to the download servers, and never logged.
 
 ## Troubleshooting
 

@@ -1,0 +1,33 @@
+# systemd unit for the opt-in auto-updater of the Foundry VTT Discord integration.
+# Installed by deploy/linux/install.sh (--auto-update / --enable-auto-update), which fills in the
+# placeholders; started once a day by foundryvtt-discord-bot-update.timer.
+# Runs as root because it runs the installer (writes the install folder and the systemd units).
+
+[Unit]
+Description=Foundry VTT Discord integration auto-update
+Documentation=https://github.com/dxcufgb/FoundryVTT-discord-integration/blob/main/docs/INSTALL.md#automatic-updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash __INSTALL_DIR__/deploy/linux/auto-update.sh --dir __INSTALL_DIR__
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+UMask=0022
+# Hardening. Not NoNewPrivileges: the installer checks the configuration with sudo -u <bot user>.
+ProtectSystem=full
+ReadWritePaths=__INSTALL_DIR__ /etc/systemd/system
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

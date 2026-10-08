@@ -10,7 +10,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Automatic updates (opt-in, off by default).** A daily check of the latest GitHub release; when it is newer than the installed version (semantic versioning; drafts and pre-releases are ignored) the bundle for the platform is downloaded, its SHA-256 checked against the release's checksum file, and it is installed the same way as a manual upgrade, then the bot is restarted. `.env` is restored byte for byte and `data/` is never touched; if the installer fails or the bot does not come back up, the previous version is restored. Linux: a systemd timer and service (`foundryvtt-discord-bot-update`), turned on with the installer's new question, `--auto-update`, or `install.sh --enable-auto-update` (`--disable-auto-update` turns it off); `deploy/linux/auto-update.sh --check` reports without installing. Windows: a Scheduled Task running as SYSTEM, turned on with the setup wizard's new *Install new releases automatically* checkbox (unchecked by default), `/AutoUpdate=1`, `install-task.ps1 -AutoUpdate` or `deploy\windows\auto-update.ps1 -Enable` (`-Disable`, `-Check`); log in `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Re-running an installer keeps the current choice; uninstalling removes the timer or task. An optional GitHub token file is supported for private forks. See [docs/INSTALL.md](docs/INSTALL.md#automatic-updates).
 - `/updates available changes:true`: one message per Foundry/system/module update, each with the cumulative changelogs of the versions between the installed and the latest one, kept within Discord's message size limit.
+
+### Changed
+
+- Windows install scripts print with `Write-Output` instead of `Write-Host`, and CI now runs PSScriptAnalyzer on `deploy/windows` and shellcheck on `deploy/linux`.
 
 ## [1.2.1] - 2026-10-05
 
