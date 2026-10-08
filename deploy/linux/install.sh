@@ -345,18 +345,23 @@ mkdir -p "$INSTALL_DIR"
 if [[ "$(cd "$SOURCE" && pwd)" != "$(cd "$INSTALL_DIR" && pwd)" ]]; then
   # Copy everything except local configuration and state, which are kept on upgrades.
   tar -C "$SOURCE" --exclude=./.env --exclude=./data --exclude=./.git -cf - . | tar -C "$INSTALL_DIR" --no-same-owner -xf -
-  # Program files belong to root: the auto-updater runs them as root, so the bot's account must not be able to change them.
-  chown root:root "$INSTALL_DIR"
-  chmod go-w "$INSTALL_DIR"
-  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} +
+  COPIED=1
   ok "Files copied"
 else
+  COPIED=0
   ok "Installing in place"
 fi
 if [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
   command -v npm >/dev/null || die "npm is needed to install dependencies (it comes with Node.js)."
   (cd "$INSTALL_DIR" && npm ci --omit=dev --no-audit --no-fund)
   ok "Dependencies installed"
+fi
+if [[ $COPIED -eq 1 ]]; then
+  # Program files belong to root (npm may hand node_modules to another owner): the auto-updater runs them as root,
+  # so the bot's account must not be able to change them.
+  chown root:root "$INSTALL_DIR"
+  chmod go-w "$INSTALL_DIR"
+  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} +
 fi
 
 umask 077
