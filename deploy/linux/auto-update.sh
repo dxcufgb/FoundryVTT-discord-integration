@@ -43,6 +43,8 @@ main() {
   dir="${dir:-$(sed -n 's/^WorkingDirectory=//p' "$unit" 2>/dev/null || true)}"
   dir="${dir:-/opt/$APP_NAME}"
   dir="${dir%/}"
+  # Check and run the real folder, not a symlink that could lead somewhere another account can write.
+  dir="$(realpath -e "$dir" 2>/dev/null)" || die "Install folder not found."
   [[ -f "$dir/package.json" && -f "$dir/scripts/self-update.js" ]] || die "No bot installation with the updater found in $dir."
   # Runs as root: refuse program files (or their folders) that another account could have changed.
   local bad
@@ -106,9 +108,9 @@ main() {
   if [[ -f "$notice" && -d "$dir/data" ]]; then
     install -m 644 -o "$(stat -c %U "$dir/data")" "$notice" "$dir/data/update-notice.json" || true
   fi
-  systemctl daemon-reload
+  systemctl daemon-reload || true
   if [[ $was_active -eq 1 ]]; then
-    systemctl restart "$SERVICE"
+    systemctl restart "$SERVICE" || true
     sleep 15
     if ! systemctl is-active --quiet "$SERVICE"; then
       journalctl -u "$SERVICE" -n 20 --no-pager -o cat || true

@@ -108,7 +108,7 @@ function Invoke-SelfUpdate([string[]]$Arguments) {
 function Register-UpdateTask {
   $script = Join-Path $InstallDir "deploy\windows\auto-update.ps1"
   if (-not (Test-Path (Join-Path $InstallDir "scripts\self-update.js")) -or -not (Test-Path $script)) { throw "$InstallDir has no auto-updater (install a newer version first)." }
-  foreach ($p in $InstallDir, (Join-Path $InstallDir "deploy\windows"), (Join-Path $InstallDir "scripts"), (Join-Path $InstallDir "src"), $script) {
+  foreach ($p in $InstallDir, (Join-Path $InstallDir "deploy\windows"), (Join-Path $InstallDir "scripts"), (Join-Path $InstallDir "src"), $script, (Join-Path $InstallDir "scripts\self-update.js"), (Join-Path $InstallDir "src\selfUpdate.js")) {
     if (Test-WritableByUser $p) { throw "$p can be changed by non-administrators, so a task running as SYSTEM must not run from it. Install to a folder only Administrators can write (for example with setup.exe under Program Files)." }
   }
   if (Test-Path $TokenFile) { Protect-Path $TokenFile; Write-UpdateLog "Restricted $TokenFile to Administrators and SYSTEM" }
@@ -234,10 +234,13 @@ function Invoke-Update {
     $dataDir = if ($isSetup) { Join-Path $ConfigDir "data" } else { Join-Path $InstallDir "data" }
     if ($r.notice -and (Test-Path $r.notice) -and (Test-Path $dataDir)) { Copy-Item -Path $r.notice -Destination (Join-Path $dataDir "update-notice.json") -Force }
 
-    if ($task) {
+    if ($task -and -not $wasRunning) {
+      # The bot was stopped on purpose: keep it stopped (setup.exe starts the task it registers).
+      Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    } elseif ($task) {
       Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
       Start-ScheduledTask -TaskName $TaskName
-      if ($wasRunning -and -not (Test-BotRunning)) {
+      if (-not (Test-BotRunning)) {
         if ($isSetup) { throw "Version $($r.latest) is installed but the bot did not stay running; see Task Scheduler and run 'Check configuration'." }
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         Restore-Payload $backup

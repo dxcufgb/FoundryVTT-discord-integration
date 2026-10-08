@@ -129,7 +129,10 @@ auto_update_on() { systemctl is-enabled --quiet "$UPDATER.timer" 2>/dev/null; }
 # Prints the first path in <install dir> (or a parent folder) that someone other than root could change, if any.
 # The updater runs these files as root, so such a path would let that account run code as root.
 unsafe_path() { # unsafe_path <install dir>
-  local p="$1" bad
+  local p bad
+  # Resolve symlinks first: the updater must not run code reached through a link into a writable place.
+  p="$(realpath -e "$1" 2>/dev/null)" || { echo "$1"; return 0; }
+  set -- "$p"
   bad="$(find "$1" \( -path "$1/data" -o -path "$1/.env" \) -prune -o ! -type l \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print -quit 2>/dev/null)"
   if [[ -n "$bad" ]]; then echo "$bad"; return 0; fi
   while p="$(dirname "$p")"; [[ "$p" != / ]]; do
