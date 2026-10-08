@@ -45,6 +45,19 @@ function Write-UpdateLog([string]$Message) {
   try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 } catch { Write-Information "(could not write $LogFile)" }
 }
 
+# ACLs through .NET instead of Get-Acl/Set-Acl: Windows PowerShell started from PowerShell 7 (or by a
+# setup started from it) inherits a PSModulePath on which Microsoft.PowerShell.Security fails to load.
+function Get-PathAcl([string]$Path) {
+  $item = Get-Item -LiteralPath $Path -Force
+  if ($PSVersionTable.PSEdition -eq "Core") { return [System.IO.FileSystemAclExtensions]::GetAccessControl($item) }
+  return $item.GetAccessControl()
+}
+
+function Write-PathAcl([string]$Path, $Acl) {
+  $item = Get-Item -LiteralPath $Path -Force
+  if ($PSVersionTable.PSEdition -eq "Core") { [System.IO.FileSystemAclExtensions]::SetAccessControl($item, $Acl) } else { $item.SetAccessControl($Acl) }
+}
+
 # Only Administrators and SYSTEM, nothing inherited.
 function Protect-Path([string]$Path, [switch]$Folder) {
   $acl = if ($Folder) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
@@ -54,17 +67,16 @@ function Protect-Path([string]$Path, [switch]$Folder) {
     $id = New-Object System.Security.Principal.SecurityIdentifier $sid
     $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule $id, "FullControl", $inherit, "None", "Allow"))
   }
-  Set-Acl -Path $Path -AclObject $acl
+  Write-PathAcl -Path $Path -Acl $acl
 }
 
 # True when Everyone, Users, Authenticated Users, INTERACTIVE or NETWORK may change the path (a SYSTEM task must not run code from there).
 function Test-WritableByUser([string]$Path) {
   $weak = "S-1-1-0", "S-1-5-11", "S-1-5-32-545", "S-1-5-4", "S-1-5-2"
   $write = [System.Security.AccessControl.FileSystemRights]"WriteData, AppendData, WriteExtendedAttributes, WriteAttributes, Delete, DeleteSubdirectoriesAndFiles, ChangePermissions, TakeOwnership"
-  foreach ($rule in (Get-Acl -Path $Path).Access) {
+  foreach ($rule in (Get-PathAcl $Path).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
     if ($rule.AccessControlType -ne "Allow" -or ($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly)) { continue }
-    try { $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { continue }
-    if ($weak -contains $sid -and ($rule.FileSystemRights -band $write)) { return $true }
+    if ($weak -contains $rule.IdentityReference.Value -and ($rule.FileSystemRights -band $write)) { return $true }
   }
   return $false
 }
