@@ -38,7 +38,7 @@ Everything is configured from Discord with slash commands. Configuration command
 
 ## Installation
 
-Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**, and must turn on **Server Members Intent** under *Bot → Privileged Gateway Intents*, or Discord refuses the bot's connection):
+Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**, and must turn on **Server Members Intent** under *Bot → Privileged Gateway Intents*, or Discord refuses the bot's connection, unless you set `UPDATE_NOTIFY` to `owner` or `off`):
 
 **Linux** (on the machine that runs Foundry):
 

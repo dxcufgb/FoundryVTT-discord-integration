@@ -7,7 +7,7 @@ The bot runs on the **same machine as Foundry VTT** so it can reach Foundry on i
 1. Go to <https://discord.com/developers/applications> and click **New Application**. Name it, for example, "Foundry".
 2. **General Information** → copy the **Application ID**. This is `DISCORD_CLIENT_ID`.
 3. **Bot** → click **Reset Token**, copy the token. This is `DISCORD_TOKEN`. Treat it like a password.
-4. Still under **Bot** → *Privileged Gateway Intents*, **turn on *Server Members Intent*** and save (leave *Presence* and *Message Content* off). The bot uses it to find each server's administrators for the [update notice](#update-notices). **Without it Discord refuses the connection**: the bot logs `Discord refused the connection: the "Server Members Intent" is not enabled for this bot …` and stops (exit code 2) until you enable it.
+4. Still under **Bot** → *Privileged Gateway Intents*, **turn on *Server Members Intent*** and save (leave *Presence* and *Message Content* off). The bot uses it to find each server's administrators for the [update notice](#update-notices). It is only requested when `UPDATE_NOTIFY` is `admins` (the default). **Without it Discord refuses the connection**: the bot logs `Discord refused the connection: the "Server Members Intent" is not enabled for this bot …` and stops (exit code 2) until you enable it.
 5. **Installation** → under *Install Link* choose *Discord Provided Link*, and under *Default Install Settings → Guild Install* add the scopes `applications.commands` and `bot`, with these bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Embed Links** and, if you want the bot to ping a role, **Mention @everyone, @here and All Roles** (or make that role mentionable).
 6. Open the install link in your browser and add the bot to your server.
 
@@ -162,7 +162,7 @@ The log is `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Unin
 
 When the bot starts on a newer version than it ran before (after an automatic or a manual upgrade), it sends one direct message to each server administrator: the owner and every member with the *Administrator* permission of each server the bot is in, one message per person listing their servers. It contains the changelog of the new version (the GitHub release notes when the auto-updater installed it, otherwise the version's section of the installed `CHANGELOG.md`) and a link to the release. Each version is announced at most once; the very first start only records the version. Members who do not accept direct messages from server members are skipped (logged).
 
-`UPDATE_NOTIFY` in `.env` chooses who gets it: `admins` (default), `owner` (only server owners) or `off`. Finding the administrators needs the *Server Members Intent* (see step 1.4); it is required for the bot to log in at all.
+`UPDATE_NOTIFY` in `.env` chooses who gets it: `admins` (default), `owner` (only server owners) or `off`. Finding the administrators needs the *Server Members Intent* (see step 1.4); with `admins` the bot cannot log in without it. `owner` and `off` do not request the intent.
 
 ## Troubleshooting
 

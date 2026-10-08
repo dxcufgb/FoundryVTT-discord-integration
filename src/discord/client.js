@@ -64,9 +64,11 @@ function safeSubcommand(interaction) {
   }
 }
 
-// GuildMembers is a privileged intent, used to find each server's administrators for the update
-// notice DM. Discord refuses the connection (close code 4014) unless it is enabled in the Developer Portal.
+// GuildMembers is a privileged intent, used only to find each server's administrators for the update
+// notice DM (UPDATE_NOTIFY=admins). Discord refuses the connection (close code 4014) unless it is
+// enabled in the Developer Portal, so it is not requested in the owner and off modes.
 export const INTENTS = Object.freeze([GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]);
+export const intentsFor = (updateNotify) => (updateNotify === "admins" ? INTENTS : [GatewayIntentBits.Guilds]);
 export const DISALLOWED_INTENTS_MESSAGE =
   'Discord refused the connection: the "Server Members Intent" is not enabled for this bot. Open https://discord.com/developers/applications, ' +
   'choose the application, go to Bot -> Privileged Gateway Intents, turn on "Server Members Intent", save, and start the bot again.';
@@ -78,7 +80,7 @@ export function isDisallowedIntents(x) {
 }
 
 export function createClient(ctx, { log = console } = {}) {
-  const client = new Client({ intents: INTENTS });
+  const client = new Client({ intents: intentsFor(ctx.config?.updateNotify) });
   client.on(Events.InteractionCreate, (interaction) => handleInteraction(interaction, ctx, { log }));
   client.on(Events.Error, (err) => log.error("Discord client error:", err));
   client.on(Events.Warn, (msg) => log.warn("Discord:", msg));

@@ -5,7 +5,7 @@ import path from "node:path";
 import { PermissionFlagsBits } from "discord.js";
 import { announceUpdate, collectRecipients, extractChangelogSection, noticeContent, takeNoticeFile } from "../src/updateNotice.js";
 import { buildUpdateNoticeMessage, EMBED_LIMITS, truncate } from "../src/messages.js";
-import { DISALLOWED_INTENTS_MESSAGE, INTENTS, isDisallowedIntents } from "../src/discord/client.js";
+import { DISALLOWED_INTENTS_MESSAGE, INTENTS, intentsFor, isDisallowedIntents } from "../src/discord/client.js";
 import { GatewayIntentBits } from "discord.js";
 import { quietLog, tmpDir, tmpState } from "./helpers.js";
 
@@ -192,8 +192,11 @@ test("announceUpdate never throws, even when Discord fails completely", async ()
   assert.equal(s.state.data.botVersion, "1.3.0", "recorded before announcing: at most once");
 });
 
-test("the client asks for the Server Members intent and recognises Discord refusing it", () => {
+test("the client asks for the Server Members intent only for admins and recognises Discord refusing it", () => {
   assert.ok(INTENTS.includes(GatewayIntentBits.GuildMembers));
+  assert.deepEqual(intentsFor("admins"), INTENTS);
+  assert.deepEqual(intentsFor("owner"), [GatewayIntentBits.Guilds]);
+  assert.deepEqual(intentsFor("off"), [GatewayIntentBits.Guilds]);
   assert.ok(isDisallowedIntents(4014));
   assert.ok(isDisallowedIntents({ code: 4014 }));
   assert.ok(isDisallowedIntents(new Error("Used disallowed intents")));

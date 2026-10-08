@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
-- **Action needed: enable the *Server Members Intent*.** The bot now asks Discord for the privileged Server Members intent (to find each server's administrators for the update notice). Turn it on in the Developer Portal (your application → **Bot** → *Privileged Gateway Intents* → *Server Members Intent*) **before upgrading**; otherwise Discord refuses the connection and the bot logs how to fix it and stops with exit code 2 (the systemd unit no longer restarts on exit code 2).
+- **Action needed: enable the *Server Members Intent*.** With the default `UPDATE_NOTIFY=admins` the bot now asks Discord for the privileged Server Members intent (to find each server's administrators for the update notice; `owner` and `off` do not request it). Turn it on in the Developer Portal (your application → **Bot** → *Privileged Gateway Intents* → *Server Members Intent*) **before upgrading**; otherwise Discord refuses the connection and the bot logs how to fix it and stops with exit code 2 (the systemd unit no longer restarts on exit code 2).
 - Windows install scripts print with `Write-Output` instead of `Write-Host`, and CI now runs PSScriptAnalyzer on `deploy/windows` and shellcheck on `deploy/linux`.
 
 ## [1.2.1] - 2026-10-05
