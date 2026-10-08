@@ -192,6 +192,10 @@ function Invoke-Update {
     foreach ($f in (Join-Path $ConfigDir ".env"), (Join-Path $InstallDir ".env")) { if (Test-Path $f) { $saved[$f] = [IO.File]::ReadAllBytes($f) } }
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     $wasRunning = [bool]($task -and $task.State -eq "Running")
+    # setup.exe re-registers the bot task as SYSTEM; never let an unattended update widen a task set up to run as another account.
+    if ($isSetup -and $task -and $task.Principal.UserId -notin @("SYSTEM", "S-1-5-18", "NT AUTHORITY\SYSTEM")) {
+      throw "The bot task runs as '$($task.Principal.UserId)', and setup.exe would re-register it as SYSTEM. Update by hand: run the new setup.exe, then install-task.ps1 -RunAsUser $($task.Principal.UserId)."
+    }
 
     if ($isSetup) {
       Write-UpdateLog "Running $(Split-Path $r.file -Leaf) silently"

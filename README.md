@@ -50,7 +50,7 @@ The guided installer checks for Node.js, finds your running Foundry server to su
 
 **Windows:** download `foundryvtt-discord-integration-<version>-setup.exe` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard installs Node.js if needed, asks the same questions and registers a Scheduled Task that runs the bot at boot. Silent installs take the answers as `/DiscordToken=… /ClientId=…` parameters.
 
-**Automatic updates** (opt-in, off by default): both installers offer to check GitHub once a day and install a newer release the same way as a manual upgrade, keeping `.env` and the data folder and rolling back if the update fails. Turn it on or off later with `sudo …/deploy/linux/install.sh --enable-auto-update` / `--disable-auto-update` or `deploy\windows\auto-update.ps1 -Enable` / `-Disable`; see [Automatic updates](docs/INSTALL.md#automatic-updates).
+**Automatic updates** (opt-in, off by default): both installers offer to check GitHub once a day and install a newer release the same way as a manual upgrade, keeping `.env` and the data folder. Linux and Windows zip installs roll back if the update fails; a Windows `setup.exe` update only undoes its own changes if setup itself fails. Turn it on or off later with `sudo …/deploy/linux/install.sh --enable-auto-update` / `--disable-auto-update` or `deploy\windows\auto-update.ps1 -Enable` / `-Disable`; see [Automatic updates](docs/INSTALL.md#automatic-updates).
 
 Then, in Discord, run `/channel set type:default` in the channel where messages should go, and fine-tune with the commands below.
 

@@ -126,8 +126,21 @@ ask_yn() { # ask_yn "Question" default(y|n) -> returns 0 for yes
 
 # --- automatic updates (systemd timer + oneshot service running deploy/linux/auto-update.sh) ---------------------
 auto_update_on() { systemctl is-enabled --quiet "$UPDATER.timer" 2>/dev/null; }
+# Prints the first path in <install dir> (or a parent folder) that someone other than root could change, if any.
+# The updater runs these files as root, so such a path would let that account run code as root.
+unsafe_path() { # unsafe_path <install dir>
+  local p="$1" bad
+  bad="$(find "$1" \( -path "$1/data" -o -path "$1/.env" \) -prune -o ! -type l \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print -quit 2>/dev/null)"
+  [[ -n "$bad" ]] && { echo "$bad"; return; }
+  while p="$(dirname "$p")"; [[ "$p" != / ]]; do
+    [[ -n "$(find "$p" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]] && { echo "$p"; return; }
+  done
+}
 enable_auto_update() { # enable_auto_update <install dir>
   [[ -f "$1/deploy/linux/auto-update.sh" && -f "$1/scripts/self-update.js" ]] || die "$1 has no auto-updater (install a newer version first)."
+  local bad
+  bad="$(unsafe_path "$1")"
+  [[ -z "$bad" ]] || die "$bad can be changed by an account other than root, and the auto-updater runs as root. Install to a folder only root can write (the installer's default /opt/$APP_NAME), not in place from a checkout."
   sed -e "s|__INSTALL_DIR__|$1|g" "$1/deploy/linux/$UPDATER.service" > "/etc/systemd/system/$UPDATER.service"
   cp "$1/deploy/linux/$UPDATER.timer" "/etc/systemd/system/$UPDATER.timer"
   chmod 644 "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"
@@ -331,7 +344,11 @@ step "Installing to $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 if [[ "$(cd "$SOURCE" && pwd)" != "$(cd "$INSTALL_DIR" && pwd)" ]]; then
   # Copy everything except local configuration and state, which are kept on upgrades.
-  tar -C "$SOURCE" --exclude=./.env --exclude=./data --exclude=./.git -cf - . | tar -C "$INSTALL_DIR" -xf -
+  tar -C "$SOURCE" --exclude=./.env --exclude=./data --exclude=./.git -cf - . | tar -C "$INSTALL_DIR" --no-same-owner -xf -
+  # Program files belong to root: the auto-updater runs them as root, so the bot's account must not be able to change them.
+  chown root:root "$INSTALL_DIR"
+  chmod go-w "$INSTALL_DIR"
+  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} +
   ok "Files copied"
 else
   ok "Installing in place"

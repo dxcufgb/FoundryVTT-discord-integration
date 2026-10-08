@@ -44,6 +44,10 @@ main() {
   dir="${dir:-/opt/$APP_NAME}"
   dir="${dir%/}"
   [[ -f "$dir/package.json" && -f "$dir/scripts/self-update.js" ]] || die "No bot installation with the updater found in $dir."
+  # Runs as root: refuse program files (or their folders) that another account could have changed.
+  local bad
+  bad="$(find "$dir" \( -path "$dir/data" -o -path "$dir/.env" \) -prune -o ! -type l \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print -quit 2>/dev/null)"
+  [[ -z "$bad" ]] || die "$bad can be changed by an account other than root; refusing to run it as root. Reinstall with deploy/linux/install.sh (it makes the program files root-owned)."
   local node
   node="$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' "$unit" 2>/dev/null || true)"
   [[ -x "$node" ]] || node="$(command -v node || true)"

@@ -138,7 +138,7 @@ sudo journalctl -u foundryvtt-discord-bot-update                                
 systemctl list-timers foundryvtt-discord-bot-update.timer                                 # when it runs next
 ```
 
-Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto-update` turns it off) to an unattended install. Re-running the installer keeps the current choice.
+Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto-update` turns it off) to an unattended install. Re-running the installer keeps the current choice. The updater runs as root, so the installer makes the program files root-owned (only `data/` and `.env` belong to the bot's account), and both turning it on and every run refuse an install folder, file or parent folder that another account can change, such as an in-place install from a checkout in your home folder.
 
 **Windows** (a Scheduled Task, *FoundryVTT Discord integration update*, daily around 04:00 with up to an hour of random delay, running as SYSTEM):
 
@@ -152,7 +152,7 @@ Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto
   .\deploy\windows\auto-update.ps1             # update now
   ```
 
-  For a zip installation, `install-task.ps1 -AutoUpdate` turns it on as well. Because the task runs as SYSTEM, `-Enable` refuses a folder that non-administrators can change; install under Program Files.
+  For a zip installation, `install-task.ps1 -AutoUpdate` turns it on as well. Because the task runs as SYSTEM, `-Enable` refuses a folder that non-administrators can change; install under Program Files. If the bot task of a setup.exe installation was re-registered to run as another account (`install-task.ps1 -RunAsUser`), the updater refuses to run setup.exe, which would register it as SYSTEM again; update that installation by hand.
 
 The log is `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Uninstalling removes the task (Windows) or the timer (Linux).
 
