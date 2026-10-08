@@ -67,7 +67,8 @@ try {
   if (-not (Test-Path (Join-Path $InstallDir "node_modules"))) {
     Write-Output "Installing dependencies"
     Push-Location $InstallDir
-    try { & npm ci --omit=dev --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw "npm ci failed" } } finally { Pop-Location }
+    $npmArgs = @("ci", "--omit=dev", "--no-audit", "--no-fund")
+    try { & npm @npmArgs; if ($LASTEXITCODE -ne 0) { throw "npm ci failed" } } finally { Pop-Location }
   }
   New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "data") | Out-Null
 

@@ -237,7 +237,7 @@ if [[ -n "$FOUNDRY_PID" ]]; then
   DETECTED_DATA="$(sed -n 's/.*--dataPath[= ]\([^ ]*\).*/\1/p' <<<"$CMDLINE")"
   DETECTED_PORT="$(sed -n 's/.*--port[= ]\([0-9]*\).*/\1/p' <<<"$CMDLINE")"
   MAIN_JS="$(grep -o '[^ ]*resources/app/main\.js' <<<"$CMDLINE" | head -n1)"
-  [[ -n "$MAIN_JS" ]] && DETECTED_APP="$(cd "$(dirname "$MAIN_JS")/../.." 2>/dev/null && pwd || true)"
+  if [[ -n "$MAIN_JS" ]]; then DETECTED_APP="$(cd "$(dirname "$MAIN_JS")/../.." 2>/dev/null && pwd)" || DETECTED_APP=""; fi
   ok "Foundry is running as user '$DETECTED_USER' (pid $FOUNDRY_PID)"
 else
   warn "No running Foundry process found; you will be asked for its settings."
@@ -276,7 +276,7 @@ if [[ -f "$INSTALL_DIR/.env" ]]; then
 fi
 
 DEFAULT_USER="${DETECTED_USER:-${SUDO_USER:-root}}"
-hint() { [[ $INTERACTIVE -eq 1 ]] && say "$@" || true; }
+hint() { if [[ $INTERACTIVE -eq 1 ]]; then say "$@"; fi; }
 hint
 hint "  The bot runs as a Linux user that must be able to read Foundry's data folder."
 hint "  Using the same user as Foundry is the simplest choice."
