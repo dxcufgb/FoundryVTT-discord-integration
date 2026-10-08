@@ -204,36 +204,43 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = "Stop"
-          $cfg = "$env:ProgramData\FoundryVTT Discord integration"
-          $app = "${env:ProgramFiles}\FoundryVTT Discord integration"
-          $upd = Get-ScheduledTask -TaskName "FoundryVTT Discord integration update"
-          "Update task: $($upd.Actions[0].Execute) $($upd.Actions[0].Arguments)"
-          if ($upd.Actions[0].Arguments -notmatch 'auto-update\.ps1') { throw "update task does not run auto-update.ps1" }
-          if ($upd.Principal.UserId -notmatch 'SYSTEM|S-1-5-18') { throw "update task does not run as SYSTEM" }
-          Set-Content -Path "$cfg\github-token" -Value $env:GITHUB_TOKEN -NoNewline
-          Add-Content -Path "$cfg\.env" -Value "EXTRA_SETTING=kept"
-          Set-Content -Path "$cfg\data\marker" -Value "marker"
-          $before = (Get-FileHash "$cfg\.env").Hash
-          Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
-          & "$app\deploy\windows\auto-update.ps1" -Check
-          if ($LASTEXITCODE -ne 0) { Get-Content "$cfg\auto-update.log"; throw "check failed" }
-          $acl = (Get-Acl "$cfg\github-token").Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
-          "Token file ACL: $($acl -join ', ')"
-          if ($acl | Where-Object { $_ -notin 'S-1-5-18', 'S-1-5-32-544' }) { throw "token file is readable by others" }
-          & "$app\deploy\windows\auto-update.ps1"
-          $code = $LASTEXITCODE
-          Get-Content "$cfg\auto-update.log"
-          if ($code -ne 0) { throw "auto-update failed" }
-          if (Select-String -Path "$cfg\auto-update.log" -SimpleMatch $env:GITHUB_TOKEN -Quiet) { throw "the token was logged" }
-          if (-not (Select-String -Path "$cfg\auto-update.log" -Pattern 'Updated to version' -Quiet)) { throw "no update happened" }
-          if ((Get-FileHash "$cfg\.env").Hash -ne $before) { throw ".env changed" }
-          if (-not (Test-Path "$cfg\data\marker")) { throw "data folder lost" }
-          $version = (Get-Content "$app\package.json" -Raw | ConvertFrom-Json).version
-          "Installed version now: $version"
-          if ($version -eq "1.0.0") { throw "version did not change" }
-          if (-not (Get-ScheduledTask -TaskName "FoundryVTT Discord integration update" -ErrorAction SilentlyContinue)) { throw "update task lost by the upgrade" }
-          Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+          try {
+            $ErrorActionPreference = "Stop"
+            $cfg = "$env:ProgramData\FoundryVTT Discord integration"
+            $app = "${env:ProgramFiles}\FoundryVTT Discord integration"
+            $upd = Get-ScheduledTask -TaskName "FoundryVTT Discord integration update"
+            "Update task: $($upd.Actions[0].Execute) $($upd.Actions[0].Arguments)"
+            if ($upd.Actions[0].Arguments -notmatch 'auto-update\.ps1') { throw "update task does not run auto-update.ps1" }
+            if ($upd.Principal.UserId -notmatch 'SYSTEM|S-1-5-18') { throw "update task does not run as SYSTEM" }
+            Set-Content -Path "$cfg\github-token" -Value $env:GITHUB_TOKEN -NoNewline
+            Add-Content -Path "$cfg\.env" -Value "EXTRA_SETTING=kept"
+            Set-Content -Path "$cfg\data\marker" -Value "marker"
+            $before = (Get-FileHash "$cfg\.env").Hash
+            Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+            & "$app\deploy\windows\auto-update.ps1" -Check
+            if ($LASTEXITCODE -ne 0) { Get-Content "$cfg\auto-update.log"; throw "check failed" }
+            $acl = (Get-Acl "$cfg\github-token").Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
+            "Token file ACL: $($acl -join ', ')"
+            if ($acl | Where-Object { $_ -notin 'S-1-5-18', 'S-1-5-32-544' }) { throw "token file is readable by others" }
+            & "$app\deploy\windows\auto-update.ps1"
+            $code = $LASTEXITCODE
+            Get-Content "$cfg\auto-update.log"
+            if ($code -ne 0) { throw "auto-update failed" }
+            if (Select-String -Path "$cfg\auto-update.log" -SimpleMatch $env:GITHUB_TOKEN -Quiet) { throw "the token was logged" }
+            if (-not (Select-String -Path "$cfg\auto-update.log" -Pattern 'Updated to version' -Quiet)) { throw "no update happened" }
+            if ((Get-FileHash "$cfg\.env").Hash -ne $before) { throw ".env changed" }
+            if (-not (Test-Path "$cfg\data\marker")) { throw "data folder lost" }
+            $version = (Get-Content "$app\package.json" -Raw | ConvertFrom-Json).version
+            "Installed version now: $version"
+            if ($version -eq "1.0.0") { throw "version did not change" }
+            if (-not (Get-ScheduledTask -TaskName "FoundryVTT Discord integration update" -ErrorAction SilentlyContinue)) { throw "update task lost by the upgrade" }
+            Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+          } catch {
+            $log = "$env:ProgramData\FoundryVTT Discord integration\auto-update.log"
+            if (Test-Path $log) { "::notice title=auto-update.log::$((Get-Content $log) -join '%0A')" }
+            "::error::$($_.Exception.Message)"
+            exit 1
+          }
       - name: Uninstall silently
         shell: pwsh
         run: |
