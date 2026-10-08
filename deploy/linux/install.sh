@@ -351,6 +351,7 @@ else
   COPIED=0
   ok "Installing in place"
 fi
+umask 022
 if [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
   command -v npm >/dev/null || die "npm is needed to install dependencies (it comes with Node.js)."
   (cd "$INSTALL_DIR" && npm ci --omit=dev --no-audit --no-fund)
@@ -361,7 +362,7 @@ if [[ $COPIED -eq 1 ]]; then
   # so the bot's account must not be able to change them.
   chown root:root "$INSTALL_DIR"
   chmod go-w "$INSTALL_DIR"
-  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} +
+  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} + -exec chmod -R go-w {} +
 fi
 
 umask 077
