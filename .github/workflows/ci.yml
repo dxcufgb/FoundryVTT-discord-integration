@@ -65,6 +65,9 @@ jobs:
           echo '{"port":30000}' > "$HOME/foundrydata/Config/options.json"
       - name: Install non-interactively
         run: |
+          # The runner image leaves /opt writable by the runner account; on a normal system it is root-only, which the
+          # auto-updater (it runs as root) checks for every parent folder of the install folder.
+          sudo chown root:root /opt && sudo chmod go-w /opt
           sudo env "PATH=$PATH" ./deploy/linux/install.sh --non-interactive --no-start \
             --token dummy-token --client-id 123456789012345678 --guild-id 987654321098765432 \
             --dir /opt/foundryvtt-discord-integration --user "$USER" --data-path "$HOME/foundrydata" \
