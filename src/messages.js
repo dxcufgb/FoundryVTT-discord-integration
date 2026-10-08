@@ -248,3 +248,41 @@ export function buildMessage(event, ctx = {}) {
   }
   return payload;
 }
+
+// --- bot update notice (DM to server admins) ---------------------------------------------
+
+export const EMBED_LIMITS = Object.freeze({ description: 4096, total: 6000, fieldValue: 1024 });
+
+/** Shorten text to max characters, ending in "…" when cut. */
+export function truncate(text, max) {
+  const s = String(text ?? "");
+  return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+/**
+ * The DM sent to server admins after the bot was updated.
+ * @param {{ version: string, changelog?: string|null, url?: string|null, servers?: string[], appName?: string }} notice
+ */
+export function buildUpdateNoticeMessage({ version, changelog = null, url = null, servers = [], appName = "FoundryVTT Discord integration" }) {
+  const title = truncate(`${appName} updated to v${version}`, 256);
+  let serverList = "";
+  for (let i = 0; i < servers.length; i++) {
+    const more = `\n…and ${servers.length - i} more`;
+    const next = `${serverList ? `${serverList}\n` : ""}${servers[i]}`;
+    if (next.length + (i < servers.length - 1 ? more.length : 0) > EMBED_LIMITS.fieldValue) {
+      serverList += more;
+      break;
+    }
+    serverList = next;
+  }
+  const fields = serverList ? [{ name: servers.length === 1 ? "Server" : "Servers", value: serverList }] : [];
+  const link = url ? `\n\n[Release notes](${url})` : "";
+  const intro = changelog ? "" : `The bot is now running version ${version}.`;
+  const used = title.length + fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
+  const room = Math.min(EMBED_LIMITS.description, EMBED_LIMITS.total - used) - link.length;
+  const description = truncate(changelog?.trim() || intro, room) + link;
+  return {
+    embeds: [{ title, url: url ?? undefined, description, color: COLORS.blue, fields }],
+    allowedMentions: { parse: [] },
+  };
+}

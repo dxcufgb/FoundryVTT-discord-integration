@@ -160,6 +160,11 @@ export async function fetchText(asset, { fetchImpl, token, timeoutMs } = {}) {
   return text;
 }
 
+/** What the bot needs from a release to tell admins about the update (public release data only). */
+export function releaseNotice(release, version) {
+  return { version, tag: release.tag_name, name: release.name ?? release.tag_name, body: String(release.body ?? "").slice(0, 20_000), html_url: release.html_url ?? null };
+}
+
 /** Read the GitHub token from a file, if there is one. Never logged. */
 export function readToken(file, log = console) {
   if (!file || !fs.existsSync(file)) return null;
@@ -196,5 +201,8 @@ export async function runUpdate({ dir, platform, outDir, checkOnly = false, repo
     throw new Error(`checksum mismatch for ${picked.asset.name}: expected ${expected}, got ${sha256}`);
   }
   log.info(`Verified ${picked.asset.name} (${size} bytes, SHA-256 ${sha256})`);
-  return { ...summary, asset: picked.asset.name, file };
+  // For the bot's "updated" DM to admins (src/updateNotice.js); the updater copies it into data/ after installing.
+  const notice = path.join(outDir, "update-notice.json");
+  fs.writeFileSync(notice, JSON.stringify(releaseNotice(release, result.latest), null, 2) + "\n", { mode: 0o644 });
+  return { ...summary, asset: picked.asset.name, file, notice };
 }

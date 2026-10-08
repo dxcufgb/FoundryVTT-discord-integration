@@ -17,6 +17,7 @@ export const DEFAULTS = Object.freeze({
   DOWN_AFTER_FAILURES: 2,
   TIMEZONE: "UTC",
   LOG_LEVEL: "info",
+  UPDATE_NOTIFY: "admins",
 });
 
 /** Parse the text of a .env file into a plain object. Supports comments, blank lines and quoted values. */
@@ -137,6 +138,9 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
   const logLevel = (pick(env, "LOG_LEVEL") ?? DEFAULTS.LOG_LEVEL).toLowerCase();
   if (!["debug", "info", "warn", "error"].includes(logLevel)) errors.push("LOG_LEVEL must be debug, info, warn or error");
 
+  const updateNotify = (pick(env, "UPDATE_NOTIFY") ?? DEFAULTS.UPDATE_NOTIFY).toLowerCase();
+  if (!["admins", "owner", "off"].includes(updateNotify)) errors.push("UPDATE_NOTIFY must be admins, owner or off");
+
   const dataPath = pick(env, "FOUNDRY_DATA_PATH");
   const appPath = pick(env, "FOUNDRY_APP_PATH");
   const botDataDir = path.resolve(baseDir, pick(env, "BOT_DATA_DIR") ?? DEFAULTS.BOT_DATA_DIR);
@@ -155,6 +159,7 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
     downAfterFailures,
     timezone,
     logLevel,
+    updateNotify,
   });
 }
 

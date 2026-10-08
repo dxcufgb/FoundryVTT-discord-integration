@@ -32,6 +32,8 @@ export function defaultState() {
     packagesSeeded: false,
     lastWindowAnnounced: null,
     notified: {},
+    // Version of the bot that last ran, to DM server admins once after an update.
+    botVersion: null,
   };
 }
 

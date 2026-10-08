@@ -64,8 +64,21 @@ function safeSubcommand(interaction) {
   }
 }
 
+// GuildMembers is a privileged intent, used to find each server's administrators for the update
+// notice DM. Discord refuses the connection (close code 4014) unless it is enabled in the Developer Portal.
+export const INTENTS = Object.freeze([GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]);
+export const DISALLOWED_INTENTS_MESSAGE =
+  'Discord refused the connection: the "Server Members Intent" is not enabled for this bot. Open https://discord.com/developers/applications, ' +
+  'choose the application, go to Bot -> Privileged Gateway Intents, turn on "Server Members Intent", save, and start the bot again.';
+
+/** Is this a gateway close code / error saying the requested privileged intents are not allowed? */
+export function isDisallowedIntents(x) {
+  if (x === 4014 || x?.code === 4014 || x?.code === "DisallowedIntents") return true;
+  return /disallowed intents|privileged intent/i.test(String(x?.message ?? ""));
+}
+
 export function createClient(ctx, { log = console } = {}) {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({ intents: INTENTS });
   client.on(Events.InteractionCreate, (interaction) => handleInteraction(interaction, ctx, { log }));
   client.on(Events.Error, (err) => log.error("Discord client error:", err));
   client.on(Events.Warn, (msg) => log.warn("Discord:", msg));

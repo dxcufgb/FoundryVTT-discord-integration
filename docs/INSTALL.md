@@ -7,7 +7,7 @@ The bot runs on the **same machine as Foundry VTT** so it can reach Foundry on i
 1. Go to <https://discord.com/developers/applications> and click **New Application**. Name it, for example, "Foundry".
 2. **General Information** → copy the **Application ID**. This is `DISCORD_CLIENT_ID`.
 3. **Bot** → click **Reset Token**, copy the token. This is `DISCORD_TOKEN`. Treat it like a password.
-4. Still under **Bot**, no privileged intents are needed (leave *Presence*, *Server Members* and *Message Content* off).
+4. Still under **Bot** → *Privileged Gateway Intents*, **turn on *Server Members Intent*** and save (leave *Presence* and *Message Content* off). The bot uses it to find each server's administrators for the [update notice](#update-notices). **Without it Discord refuses the connection**: the bot logs `Discord refused the connection: the "Server Members Intent" is not enabled for this bot …` and stops (exit code 2) until you enable it.
 5. **Installation** → under *Install Link* choose *Discord Provided Link*, and under *Default Install Settings → Guild Install* add the scopes `applications.commands` and `bot`, with these bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Embed Links** and, if you want the bot to ping a role, **Mention @everyone, @here and All Roles** (or make that role mentionable).
 6. Open the install link in your browser and add the bot to your server.
 
@@ -158,11 +158,18 @@ The log is `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Unin
 
 **GitHub token (optional).** The repository is public, so no token is needed. GitHub allows 60 anonymous API requests an hour per IP address, which a daily check never gets near. For a private fork, or behind a shared address that runs out, put a token that can read the repository's releases in `/etc/foundryvtt-discord-integration/github-token` (owned by root, `chmod 600`) or `C:\ProgramData\FoundryVTT Discord integration\github-token` (the updater restricts it to Administrators and SYSTEM). It is only ever sent to `api.github.com`, never to the download servers, and never logged.
 
+## Update notices
+
+When the bot starts on a newer version than it ran before (after an automatic or a manual upgrade), it sends one direct message to each server administrator: the owner and every member with the *Administrator* permission of each server the bot is in, one message per person listing their servers. It contains the changelog of the new version (the GitHub release notes when the auto-updater installed it, otherwise the version's section of the installed `CHANGELOG.md`) and a link to the release. Each version is announced at most once; the very first start only records the version. Members who do not accept direct messages from server members are skipped (logged).
+
+`UPDATE_NOTIFY` in `.env` chooses who gets it: `admins` (default), `owner` (only server owners) or `off`. Finding the administrators needs the *Server Members Intent* (see step 1.4); it is required for the bot to log in at all.
+
 ## Troubleshooting
 
 - **Slash commands do not appear**: global commands can take up to an hour. Set `DISCORD_GUILD_ID` for instant registration, or run `node scripts/register-commands.js`. The bot must have been invited with the `applications.commands` scope.
 - **"Only server administrators can use this command"**: configuration commands require the *Administrator* permission in that server.
 - **Foundry shows as down but is running**: check `FOUNDRY_URL`. Use the local address (`http://localhost:30000`), not a public hostname behind a proxy that might need authentication. `curl http://localhost:30000/api/status` should return JSON.
 - **No update messages**: `FOUNDRY_DATA_PATH` must point at the user data folder and be readable by the user the bot runs as. `/updates list` shows what the bot sees. The first scan is silent on purpose.
+- **"Discord refused the connection: the "Server Members Intent" is not enabled"**: enable it in the Developer Portal (your application → **Bot** → *Privileged Gateway Intents* → *Server Members Intent* → Save) and start the bot again (`sudo systemctl restart foundryvtt-discord-bot`, or start the task in Task Scheduler).
 - **Nothing is posted**: `/channel list` shows the routing; `/test-message` tests a channel. Look at the log (`journalctl -u foundryvtt-discord-bot` on Linux, *Run bot in a window* from the Start menu on Windows).
 - **Windows: the task is there but the bot is not running**: open Task Scheduler and look at the task's *Last Run Result*; run *Check configuration* from the Start menu. If Node.js was installed during setup and the bot still does not start, reboot once so the new PATH is picked up by the task.

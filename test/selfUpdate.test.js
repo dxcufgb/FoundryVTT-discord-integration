@@ -105,6 +105,7 @@ test("runUpdate downloads and verifies a newer bundle; the token never leaves ap
   assert.equal(r.latest, "1.3.0");
   assert.equal(r.file, path.join(out, gh.name));
   assert.equal(fs.readFileSync(r.file, "utf8"), "bundle bytes");
+  assert.deepEqual(JSON.parse(fs.readFileSync(r.notice, "utf8")), { version: "1.3.0", tag: "v1.3.0", name: "v1.3.0", body: "", html_url: "https://github.com/o/r/releases/v1.3.0" });
   assert.ok(gh.calls.every((c) => c.redirect === "manual"));
   for (const c of gh.calls) assert.equal(c.auth !== null, new URL(c.url).host === "api.github.com", c.url);
   assert.ok(gh.calls.some((c) => c.url.startsWith("https://api.github.com/repos/o/r/releases/assets/")), "with a token, assets go through the API");

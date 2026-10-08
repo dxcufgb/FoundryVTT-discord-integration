@@ -226,6 +226,10 @@ function Invoke-Update {
       }
     }
 
+    # Release notes for the bot's "updated" DM to server admins (read and deleted by the bot).
+    $dataDir = if ($isSetup) { Join-Path $ConfigDir "data" } else { Join-Path $InstallDir "data" }
+    if ($r.notice -and (Test-Path $r.notice) -and (Test-Path $dataDir)) { Copy-Item -Path $r.notice -Destination (Join-Path $dataDir "update-notice.json") -Force }
+
     if ($task) {
       Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
       Start-ScheduledTask -TaskName $TaskName

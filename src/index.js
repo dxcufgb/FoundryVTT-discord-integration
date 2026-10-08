@@ -3,7 +3,7 @@
 
 import path from "node:path";
 import { Events } from "discord.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, PROJECT_ROOT } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
@@ -13,9 +13,11 @@ import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
 import { Notifier } from "./notifier.js";
 import { SessionScheduler } from "./sessions.js";
-import { createClient } from "./discord/client.js";
+import { createClient, DISALLOWED_INTENTS_MESSAGE, isDisallowedIntents } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
 import { registerCommands } from "./discord/registerCommands.js";
+import { announceUpdate } from "./updateNotice.js";
+import { installedVersion } from "./selfUpdate.js";
 
 async function main() {
   let config;
@@ -84,6 +86,23 @@ async function main() {
     } catch (err) {
       log.error("Could not register slash commands:", err?.message ?? err);
     }
+    // Fire and forget: DMs are sent one by one and must not hold up monitoring.
+    void announceUpdate({
+      client: c,
+      state,
+      version: (() => {
+        try {
+          return installedVersion(PROJECT_ROOT);
+        } catch {
+          return null;
+        }
+      })(),
+      mode: config.updateNotify,
+      botDataDir: config.botDataDir,
+      projectRoot: PROJECT_ROOT,
+      repoUrl: "https://github.com/dxcufgb/FoundryVTT-discord-integration",
+      log,
+    });
     if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
     await poll();
     timer = setInterval(poll, config.pollIntervalSeconds * 1000);
@@ -100,7 +119,21 @@ async function main() {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("unhandledRejection", (err) => log.error("Unhandled promise rejection:", err));
 
-  await client.login(config.discord.token);
+  // A privileged intent that is not enabled in the Developer Portal is a configuration error, not a crash:
+  // say what to do and exit with 2 (like other configuration errors; systemd does not restart on it).
+  const refusedIntents = () => {
+    log.error(DISALLOWED_INTENTS_MESSAGE);
+    client.destroy();
+    process.exit(2);
+  };
+  client.on(Events.ShardDisconnect, (event) => isDisallowedIntents(event?.code) && refusedIntents());
+  client.on(Events.ShardError, (err) => isDisallowedIntents(err) && refusedIntents());
+  try {
+    await client.login(config.discord.token);
+  } catch (err) {
+    if (isDisallowedIntents(err)) refusedIntents();
+    throw err;
+  }
 }
 
 main().catch((err) => {

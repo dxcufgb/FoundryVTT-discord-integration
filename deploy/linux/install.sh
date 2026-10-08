@@ -285,7 +285,8 @@ id "$RUN_USER" >/dev/null 2>&1 || die "User '$RUN_USER' does not exist."
 
 hint
 hint "  Discord: create an application at https://discord.com/developers/applications,"
-hint "  copy the Application ID (General Information) and the bot token (Bot → Reset Token)."
+hint "  copy the Application ID (General Information) and the bot token (Bot → Reset Token), and turn on"
+hint "  Server Members Intent under Bot → Privileged Gateway Intents (Discord refuses the bot without it)."
 ask_secret TOKEN "Discord bot token (input hidden)"
 [[ -n "$TOKEN" ]] || die "A Discord bot token is required (--token in non-interactive mode)."
 ask CLIENT_ID "Discord application (client) ID"

@@ -96,6 +96,12 @@ main() {
   fi
   # The installer rewrites .env from the values it knows; put back the exact file (comments, extra settings).
   [[ -f "$WORK/env.bak" ]] && cp -p "$WORK/env.bak" "$dir/.env"
+  # Release notes for the bot's "updated" DM to server admins (read and deleted by the bot).
+  local notice
+  notice="$(sed -n 's/^notice=//p' <<<"$out")"
+  if [[ -f "$notice" && -d "$dir/data" ]]; then
+    install -m 644 -o "$(stat -c %U "$dir/data")" "$notice" "$dir/data/update-notice.json" || true
+  fi
   systemctl daemon-reload
   if [[ $was_active -eq 1 ]]; then
     systemctl restart "$SERVICE"
