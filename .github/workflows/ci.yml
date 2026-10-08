@@ -241,6 +241,17 @@ jobs:
             "::error::$($_.Exception.Message)"
             exit 1
           }
+      - name: Reinstall the build under test (a silent upgrade keeps auto-update on)
+        # The update above installed the latest published release; go back to this build so the
+        # uninstall below is the one under test.
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup2.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content setup2.log | Select-Object -Last 40; throw "setup exited with $($p.ExitCode)" }
+          if (-not (Get-ScheduledTask -TaskName "FoundryVTT Discord integration update" -ErrorAction SilentlyContinue)) { throw "the upgrade dropped the update task" }
+          if (-not (Select-String -Path setup2.log -Pattern 'Automatic updates currently on: 1' -Quiet)) { throw "setup did not see the update task" }
+          Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
       - name: Uninstall silently
         shell: pwsh
         run: |
