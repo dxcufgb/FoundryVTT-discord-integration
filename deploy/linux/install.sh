@@ -131,10 +131,14 @@ auto_update_on() { systemctl is-enabled --quiet "$UPDATER.timer" 2>/dev/null; }
 unsafe_path() { # unsafe_path <install dir>
   local p="$1" bad
   bad="$(find "$1" \( -path "$1/data" -o -path "$1/.env" \) -prune -o ! -type l \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print -quit 2>/dev/null)"
-  [[ -n "$bad" ]] && { echo "$bad"; return; }
+  if [[ -n "$bad" ]]; then echo "$bad"; return 0; fi
   while p="$(dirname "$p")"; [[ "$p" != / ]]; do
-    [[ -n "$(find "$p" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]] && { echo "$p"; return; }
+    if [[ -n "$(find "$p" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]]; then
+      echo "$p"
+      return 0
+    fi
   done
+  return 0
 }
 enable_auto_update() { # enable_auto_update <install dir>
   [[ -f "$1/deploy/linux/auto-update.sh" && -f "$1/scripts/self-update.js" ]] || die "$1 has no auto-updater (install a newer version first)."
