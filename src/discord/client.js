@@ -73,6 +73,9 @@ export const intentsFor = (updateNotify) => (updateNotify === "admins" ? INTENTS
 export const DISALLOWED_INTENTS_MESSAGE =
   'Discord refused the connection: the "Server Members Intent" is not enabled for this bot. Open https://discord.com/developers/applications, ' +
   'choose the application, go to Bot -> Privileged Gateway Intents, turn on "Server Members Intent", save, and start the bot again.';
+export const INTENTS_LOST_MESSAGE =
+  'Discord closed the connection because the "Server Members Intent" is no longer allowed for this bot; discord.js does not reconnect after that. ' +
+  "Exiting so the service restarts; it then connects with owner-only update notices.";
 export const INTENTS_FALLBACK_MESSAGE =
   'The "Server Members Intent" is not enabled for this bot, so update notices will go to server owners only (not to every Administrator). ' +
   "To include administrators: open https://discord.com/developers/applications, choose the application, go to Bot -> Privileged Gateway Intents, " +
@@ -95,16 +98,25 @@ export function createClient(ctx, { log = console, updateNotify = ctx.config?.up
 /**
  * Log in and wait until the client is ready. If Discord refuses the Server Members intent in admins
  * mode, warn once, log in again with a new Guilds-only client and continue in owner mode. Any other
- * failure (or a refusal of the fallback) rejects.
- * @param {{ token: string, updateNotify: string, makeClient: (updateNotify: string) => object, log?: object }} opts
+ * failure (or a refusal of the fallback) rejects. A refusal after the client was ready (the intent was
+ * turned off later) calls onLost: discord.js never reconnects after it, so by default the process exits
+ * with 1 and the service manager (systemd Restart=on-failure, Task Scheduler) starts it again.
+ * @param {{ token: string, updateNotify: string, makeClient: (updateNotify: string) => object, log?: object, onLost?: () => void }} opts
  * @returns {Promise<{ client: object, readyClient: object, updateNotify: string }>}  the client that is connected and the effective notify mode
  */
-export function connectDiscord({ token, updateNotify, makeClient, log = console }) {
+export function connectDiscord({ token, updateNotify, makeClient, log = console, onLost = () => process.exit(1) }) {
   return new Promise((resolve, reject) => {
     const attempt = (mode) => {
       const client = makeClient(mode);
       let settled = false;
+      let ready = false;
       const fail = (err) => {
+        if (ready && isDisallowedIntents(err)) {
+          ready = false; // once: ShardDisconnect and ShardError can both report it
+          log.error(INTENTS_LOST_MESSAGE);
+          onLost();
+          return;
+        }
         if (settled) return;
         settled = true;
         void Promise.resolve()
@@ -121,7 +133,7 @@ export function connectDiscord({ token, updateNotify, makeClient, log = console 
       client.on(Events.ShardError, (err) => isDisallowedIntents(err) && fail(err));
       client.once(Events.ClientReady, (readyClient) => {
         if (settled) return;
-        settled = true;
+        settled = ready = true;
         resolve({ client, readyClient, updateNotify: mode });
       });
       Promise.resolve()

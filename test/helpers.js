@@ -109,6 +109,12 @@ export function fakeLoginClient(behaviour) {
       setImmediate(() => {
         if (behaviour === "refuse-later") client.emit(Events.ShardDisconnect, { code: 4014 }, 0);
         else client.emit(Events.ClientReady, client);
+        if (behaviour === "ready-then-refuse") {
+          setImmediate(() => {
+            client.emit(Events.ShardDisconnect, { code: 4014 }, 0);
+            client.emit(Events.ShardError, Object.assign(new Error("Used disallowed intents"), { code: 4014 }), 0);
+          });
+        }
       });
       return token;
     },

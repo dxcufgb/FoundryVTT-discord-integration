@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
-- **Recommended: enable the *Server Members Intent*.** With the default `UPDATE_NOTIFY=admins` the bot now asks Discord for the privileged Server Members intent (to find each server's administrators for the update notice; `owner` and `off` do not request it). Turn it on in the Developer Portal (your application → **Bot** → *Privileged Gateway Intents* → *Server Members Intent*). Without it the bot still starts: it logs one warning (how to enable the intent, or set `UPDATE_NOTIFY=owner` to silence it), connects again without the intent and sends update notices to server owners only.
+- **Recommended: enable the *Server Members Intent*.** With the default `UPDATE_NOTIFY=admins` the bot now asks Discord for the privileged Server Members intent (to find each server's administrators for the update notice; `owner` and `off` do not request it). Turn it on in the Developer Portal (your application → **Bot** → *Privileged Gateway Intents* → *Server Members Intent*). Without it the bot still starts: it logs one warning (how to enable the intent, or set `UPDATE_NOTIFY=owner` to silence it), connects again without the intent and sends update notices to server owners only. If the intent is turned off while the bot is running, the bot exits so the service restarts it in that mode.
 - The systemd unit no longer restarts the bot on exit code 2 (a configuration error such as a bad `.env`, where restarting does not help).
 - Windows install scripts print with `Write-Output` instead of `Write-Host`, and CI now runs PSScriptAnalyzer on `deploy/windows` and shellcheck on `deploy/linux`.
 

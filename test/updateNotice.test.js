@@ -5,7 +5,7 @@ import path from "node:path";
 import { PermissionFlagsBits } from "discord.js";
 import { announceUpdate, collectRecipients, extractChangelogSection, noticeContent, takeNoticeFile } from "../src/updateNotice.js";
 import { buildUpdateNoticeMessage, EMBED_LIMITS, truncate } from "../src/messages.js";
-import { connectDiscord, createClient, DISALLOWED_INTENTS_MESSAGE, INTENTS, INTENTS_FALLBACK_MESSAGE, intentsFor, isDisallowedIntents } from "../src/discord/client.js";
+import { connectDiscord, createClient, DISALLOWED_INTENTS_MESSAGE, INTENTS, INTENTS_FALLBACK_MESSAGE, INTENTS_LOST_MESSAGE, intentsFor, isDisallowedIntents } from "../src/discord/client.js";
 import { GatewayIntentBits } from "discord.js";
 import { fakeLoginClient, quietLog, tmpDir, tmpState } from "./helpers.js";
 
@@ -216,7 +216,9 @@ function loginHarness(behaviours) {
     made.push(client);
     return client;
   };
-  return { made, logs, connect: (updateNotify) => connectDiscord({ token: "tok", updateNotify, makeClient, log }) };
+  const lost = [];
+  const onLost = () => lost.push(true);
+  return { made, logs, lost, connect: (updateNotify) => connectDiscord({ token: "tok", updateNotify, makeClient, log, onLost }) };
 }
 
 test("connectDiscord keeps admins mode when Discord accepts the Server Members intent", async () => {
@@ -248,6 +250,18 @@ for (const how of ["refuse", "refuse-later"]) {
     assert.match(INTENTS_FALLBACK_MESSAGE, /UPDATE_NOTIFY=owner/);
   });
 }
+
+test("connectDiscord exits (once) when Discord refuses the intent after the bot was ready", async () => {
+  const h = loginHarness(["ready-then-refuse"]);
+  const r = await h.connect("admins");
+  assert.equal(r.updateNotify, "admins");
+  await new Promise((done) => setImmediate(done));
+  await new Promise((done) => setImmediate(done));
+  assert.equal(h.lost.length, 1, "onLost is called once for the disconnect and the error");
+  assert.equal(h.made.length, 1, "no second client inside this process");
+  assert.deepEqual(h.logs, [["error", INTENTS_LOST_MESSAGE]]);
+  assert.match(INTENTS_LOST_MESSAGE, /restarts/);
+});
 
 test("connectDiscord fails like any fatal login error when the fallback login fails too", async () => {
   const h = loginHarness(["refuse", "fail"]);
