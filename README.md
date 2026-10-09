@@ -38,7 +38,7 @@ Everything is configured from Discord with slash commands. Configuration command
 
 ## Installation
 
-Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**, and must turn on **Server Members Intent** under *Bot → Privileged Gateway Intents*, or Discord refuses the bot's connection, unless you set `UPDATE_NOTIFY` to `owner` or `off`):
+Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**; also turn on **Server Members Intent** under *Bot → Privileged Gateway Intents* so update notices reach every server Administrator, otherwise the bot logs a warning and sends them to server owners only):
 
 **Linux** (on the machine that runs Foundry):
 
@@ -103,7 +103,7 @@ All settings are environment variables, read from `.env` (see [`.env.example`](.
 | `DOWN_AFTER_FAILURES` | `2` | Failed checks in a row before Foundry counts as down. |
 | `TIMEZONE` | `UTC` | Default timezone for restart windows (IANA name, e.g. `Europe/Stockholm`). |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
-| `UPDATE_NOTIFY` | `admins` | Who gets a direct message with the changelog after the bot was updated: `admins` (owner and every Administrator of each server), `owner` or `off`. |
+| `UPDATE_NOTIFY` | `admins` | Who gets a direct message with the changelog after the bot was updated: `admins` (owner and every Administrator of each server; needs the Server Members Intent, otherwise the bot warns and messages owners only), `owner` or `off`. |
 
 `npm run check-config` validates `.env`, probes Foundry, counts the installed packages and worlds and tells how many modules no world uses, without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
 

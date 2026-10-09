@@ -5,9 +5,9 @@ import path from "node:path";
 import { PermissionFlagsBits } from "discord.js";
 import { announceUpdate, collectRecipients, extractChangelogSection, noticeContent, takeNoticeFile } from "../src/updateNotice.js";
 import { buildUpdateNoticeMessage, EMBED_LIMITS, truncate } from "../src/messages.js";
-import { DISALLOWED_INTENTS_MESSAGE, INTENTS, intentsFor, isDisallowedIntents } from "../src/discord/client.js";
+import { connectDiscord, createClient, DISALLOWED_INTENTS_MESSAGE, INTENTS, INTENTS_FALLBACK_MESSAGE, intentsFor, isDisallowedIntents } from "../src/discord/client.js";
 import { GatewayIntentBits } from "discord.js";
-import { quietLog, tmpDir, tmpState } from "./helpers.js";
+import { fakeLoginClient, quietLog, tmpDir, tmpState } from "./helpers.js";
 
 const CHANGELOG = `# Changelog
 
@@ -204,4 +204,77 @@ test("the client asks for the Server Members intent only for admins and recognis
   assert.ok(!isDisallowedIntents(4004));
   assert.ok(!isDisallowedIntents(new Error("An invalid token was provided.")));
   assert.match(DISALLOWED_INTENTS_MESSAGE, /Server Members Intent/);
+});
+
+function loginHarness(behaviours) {
+  const made = [];
+  const logs = [];
+  const log = { debug() {}, info() {}, warn: (m) => logs.push(["warn", m]), error: (m) => logs.push(["error", m]) };
+  const makeClient = (mode) => {
+    const client = fakeLoginClient(behaviours[made.length] ?? "fail");
+    client.mode = mode;
+    made.push(client);
+    return client;
+  };
+  return { made, logs, connect: (updateNotify) => connectDiscord({ token: "tok", updateNotify, makeClient, log }) };
+}
+
+test("connectDiscord keeps admins mode when Discord accepts the Server Members intent", async () => {
+  const h = loginHarness(["ready"]);
+  const r = await h.connect("admins");
+  assert.equal(r.updateNotify, "admins");
+  assert.equal(r.client, h.made[0]);
+  assert.equal(r.readyClient, h.made[0]);
+  assert.equal(h.made.length, 1);
+  assert.deepEqual(h.logs, []);
+});
+
+for (const how of ["refuse", "refuse-later"]) {
+  test(`connectDiscord falls back to owner mode with a Guilds-only client when Discord refuses the intent (${how})`, async () => {
+    const h = loginHarness([how, "ready"]);
+    const r = await h.connect("admins");
+    assert.equal(r.updateNotify, "owner");
+    assert.deepEqual(h.made.map((c) => c.mode), ["admins", "owner"]);
+    assert.deepEqual(intentsFor(h.made[1].mode), [GatewayIntentBits.Guilds]);
+    assert.equal(r.client, h.made[1], "the rest of startup uses the client that logged in");
+    assert.ok(h.made[0].destroyed, "the refused client is destroyed");
+    assert.ok(!h.made[1].destroyed);
+    assert.deepEqual(h.made[1].logins, ["tok"]);
+    assert.equal(h.logs.length, 1, "exactly one message");
+    assert.equal(h.logs[0][0], "warn");
+    assert.equal(h.logs[0][1], INTENTS_FALLBACK_MESSAGE);
+    assert.match(INTENTS_FALLBACK_MESSAGE, /server owners only/);
+    assert.match(INTENTS_FALLBACK_MESSAGE, /Server Members Intent/);
+    assert.match(INTENTS_FALLBACK_MESSAGE, /UPDATE_NOTIFY=owner/);
+  });
+}
+
+test("connectDiscord fails like any fatal login error when the fallback login fails too", async () => {
+  const h = loginHarness(["refuse", "fail"]);
+  await assert.rejects(h.connect("admins"), /invalid token/);
+  assert.equal(h.made.length, 2);
+  assert.equal(h.logs.filter(([l]) => l === "warn").length, 1);
+});
+
+test("connectDiscord does not retry in owner mode, and passes other login errors through", async () => {
+  let h = loginHarness(["refuse"]);
+  await assert.rejects(h.connect("owner"), (err) => err.message === DISALLOWED_INTENTS_MESSAGE);
+  assert.equal(h.made.length, 1);
+  h = loginHarness(["fail"]);
+  await assert.rejects(h.connect("admins"), /invalid token/);
+  assert.equal(h.made.length, 1, "no fallback for a bad token");
+  assert.deepEqual(h.logs, []);
+});
+
+test("createClient requests the intents of the mode it is given, not only the configured one", async () => {
+  const fallback = createClient({ config: { updateNotify: "admins" } }, { log: quietLog, updateNotify: "owner" });
+  const normal = createClient({ config: { updateNotify: "admins" } }, { log: quietLog });
+  try {
+    assert.ok(!fallback.options.intents.has(GatewayIntentBits.GuildMembers));
+    assert.ok(fallback.options.intents.has(GatewayIntentBits.Guilds));
+    assert.ok(normal.options.intents.has(GatewayIntentBits.GuildMembers));
+  } finally {
+    await fallback.destroy();
+    await normal.destroy();
+  }
 });

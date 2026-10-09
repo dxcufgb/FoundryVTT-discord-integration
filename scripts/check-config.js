@@ -21,7 +21,7 @@ console.log(`  Bot data dir:       ${config.botDataDir}`);
 console.log(`  Poll every:         ${config.pollIntervalSeconds} s, down after ${config.downAfterFailures} failed checks`);
 console.log(`  Timezone:           ${config.timezone}`);
 console.log(`  Discord token:      ${config.discord.token ? "set" : "MISSING"}, client id: ${config.discord.clientId ? "set" : "MISSING"}`);
-console.log(`  Update notices:     ${config.updateNotify} (DM after a bot update; "admins" needs the Server Members Intent enabled in the Developer Portal)`);
+console.log(`  Update notices:     ${config.updateNotify} (DM after a bot update; "admins" needs the Server Members Intent enabled in the Developer Portal, otherwise owners only)`);
 
 const result = await createStatusFetcher(config.foundry.url)();
 if (result.ok) {

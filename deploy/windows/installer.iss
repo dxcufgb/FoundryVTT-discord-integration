@@ -215,7 +215,7 @@ begin
   DiscordPage := CreateInputQueryPage(wpSelectDir, 'Discord bot',
     'How the bot connects to your Discord server',
     'Create an application at https://discord.com/developers/applications. Copy the Application ID from "General Information" ' +
-    'and the token from "Bot" (Reset Token); on that page also turn on "Server Members Intent" under Privileged Gateway Intents, or Discord refuses the bot. Invite the bot to your server with the "bot" and "applications.commands" scopes. ' +
+    'and the token from "Bot" (Reset Token); on that page also turn on "Server Members Intent" under Privileged Gateway Intents (without it update notices go to server owners only). Invite the bot to your server with the "bot" and "applications.commands" scopes. ' +
     'The server ID is optional: with it, the slash commands appear immediately instead of within an hour.');
   DiscordPage.Add('Bot token:', True);
   DiscordPage.Add('Application (client) ID:', False);

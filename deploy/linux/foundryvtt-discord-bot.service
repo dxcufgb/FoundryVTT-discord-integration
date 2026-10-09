@@ -16,7 +16,7 @@ EnvironmentFile=__INSTALL_DIR__/.env
 ExecStart=__NODE__ src/index.js
 Restart=on-failure
 RestartSec=10
-# Exit code 2 is a configuration error (bad .env, Server Members Intent not enabled): restarting will not help.
+# Exit code 2 is a configuration error (bad .env): restarting will not help.
 RestartPreventExitStatus=2
 # Hardening: the bot only needs to read Foundry's folder and write its own data/ folder.
 NoNewPrivileges=true

@@ -2,7 +2,6 @@
 // slash commands and start polling Foundry.
 
 import path from "node:path";
-import { Events } from "discord.js";
 import { loadConfig, PROJECT_ROOT } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
@@ -13,7 +12,7 @@ import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
 import { Notifier } from "./notifier.js";
 import { SessionScheduler } from "./sessions.js";
-import { createClient, DISALLOWED_INTENTS_MESSAGE, isDisallowedIntents } from "./discord/client.js";
+import { connectDiscord, createClient } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
 import { registerCommands } from "./discord/registerCommands.js";
 import { announceUpdate } from "./updateNotice.js";
@@ -53,9 +52,6 @@ async function main() {
     log,
     now: () => new Date(),
   };
-  const client = createClient(ctx, { log });
-  ctx.client = client;
-  ctx.notifier = new Notifier({ client, state, worldTitle, log });
   ctx.sessions = new SessionScheduler({ state, emit: (event) => ctx.notifier.deliver(event), log });
   ctx.monitor = new FoundryMonitor({
     fetchStatus,
@@ -79,61 +75,57 @@ async function main() {
   };
 
   let timer = null;
-  client.once(Events.ClientReady, async (c) => {
-    log.info(`Logged in to Discord as ${c.user.tag} in ${c.guilds.cache.size} server(s).`);
-    try {
-      await registerCommands(config, commands, { log });
-    } catch (err) {
-      log.error("Could not register slash commands:", err?.message ?? err);
-    }
-    // Fire and forget: DMs are sent one by one and must not hold up monitoring.
-    void announceUpdate({
-      client: c,
-      state,
-      version: (() => {
-        try {
-          return installedVersion(PROJECT_ROOT);
-        } catch {
-          return null;
-        }
-      })(),
-      mode: config.updateNotify,
-      botDataDir: config.botDataDir,
-      projectRoot: PROJECT_ROOT,
-      repoUrl: "https://github.com/dxcufgb/FoundryVTT-discord-integration",
-      log,
-    });
-    if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
-    await poll();
-    timer = setInterval(poll, config.pollIntervalSeconds * 1000);
-    log.info(`Checking Foundry every ${config.pollIntervalSeconds} s.`);
-  });
-
+  let client = null;
   const shutdown = (signal) => {
     log.info(`Received ${signal}, shutting down.`);
     if (timer) clearInterval(timer);
-    client.destroy();
+    client?.destroy();
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("unhandledRejection", (err) => log.error("Unhandled promise rejection:", err));
 
-  // A privileged intent that is not enabled in the Developer Portal is a configuration error, not a crash:
-  // say what to do and exit with 2 (like other configuration errors; systemd does not restart on it).
-  const refusedIntents = () => {
-    log.error(DISALLOWED_INTENTS_MESSAGE);
-    client.destroy();
-    process.exit(2);
-  };
-  client.on(Events.ShardDisconnect, (event) => isDisallowedIntents(event?.code) && refusedIntents());
-  client.on(Events.ShardError, (err) => isDisallowedIntents(err) && refusedIntents());
+  // With UPDATE_NOTIFY=admins and the Server Members Intent not enabled in the Developer Portal, Discord
+  // refuses the connection; connectDiscord then warns once and connects again in owner mode.
+  const connected = await connectDiscord({
+    token: config.discord.token,
+    updateNotify: config.updateNotify,
+    makeClient: (updateNotify) => (client = createClient(ctx, { log, updateNotify })),
+    log,
+  });
+  client = connected.client;
+  ctx.client = client;
+  ctx.notifier = new Notifier({ client, state, worldTitle, log });
+
+  const c = connected.readyClient;
+  log.info(`Logged in to Discord as ${c.user.tag} in ${c.guilds.cache.size} server(s).`);
   try {
-    await client.login(config.discord.token);
+    await registerCommands(config, commands, { log });
   } catch (err) {
-    if (isDisallowedIntents(err)) refusedIntents();
-    throw err;
+    log.error("Could not register slash commands:", err?.message ?? err);
   }
+  // Fire and forget: DMs are sent one by one and must not hold up monitoring.
+  void announceUpdate({
+    client: c,
+    state,
+    version: (() => {
+      try {
+        return installedVersion(PROJECT_ROOT);
+      } catch {
+        return null;
+      }
+    })(),
+    mode: connected.updateNotify,
+    botDataDir: config.botDataDir,
+    projectRoot: PROJECT_ROOT,
+    repoUrl: "https://github.com/dxcufgb/FoundryVTT-discord-integration",
+    log,
+  });
+  if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
+  await poll();
+  timer = setInterval(poll, config.pollIntervalSeconds * 1000);
+  log.info(`Checking Foundry every ${config.pollIntervalSeconds} s.`);
 }
 
 main().catch((err) => {
