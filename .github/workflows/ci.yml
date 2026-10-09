@@ -44,6 +44,7 @@ jobs:
   linux-installer:
     name: Linux installer (systemd)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,8 +100,10 @@ jobs:
           sudo grep -q '^DISCORD_GUILD_ID=987654321098765432$' /opt/foundryvtt-discord-integration/.env
       - name: Re-run interactively on a pseudo-terminal, accepting every default
         # Regression test: answering the hidden token prompt with Enter must keep the stored token, not end the script.
+        # Press Enter once a second until the installer exits: newlines sent all at once can be used up before the
+        # last prompt, which then waits forever.
         run: |
-          printf '\n\n\n\n\n\n\n\n\n\n\n\n\n\n' | sudo env "PATH=$PATH" script -qefc "./deploy/linux/install.sh --no-start --dir /opt/foundryvtt-discord-integration" /dev/null
+          { trap '' PIPE; while sleep 1; do echo 2>/dev/null || break; done; } | sudo env "PATH=$PATH" script -qefc "./deploy/linux/install.sh --no-start --dir /opt/foundryvtt-discord-integration" /dev/null
           sudo grep -q '^DISCORD_TOKEN=dummy-token$' /opt/foundryvtt-discord-integration/.env
           sudo grep -q '^DISCORD_CLIENT_ID=123456789012345678$' /opt/foundryvtt-discord-integration/.env
           sudo grep -q '^TIMEZONE=Europe/Stockholm$' /opt/foundryvtt-discord-integration/.env
@@ -157,6 +160,7 @@ jobs:
   windows-installer:
     name: Windows installer (Inno Setup)
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
