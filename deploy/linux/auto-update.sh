@@ -21,6 +21,9 @@ APP_NAME="foundryvtt-discord-integration"
 TOKEN_FILE="/etc/$APP_NAME/github-token"
 LOCK_FILE="/run/lock/$SERVICE-update.lock"
 
+REPO_URL="https://github.com/dxcufgb/FoundryVTT-discord-integration"
+KEEP_WORK=0
+
 log() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -74,7 +77,8 @@ main() {
   if ! flock -n 9; then log "Another update is already running; nothing to do."; return 0; fi
 
   WORK="$(mktemp -d /var/tmp/$SERVICE-update.XXXXXX)"
-  trap 'rm -rf "$WORK"' EXIT
+  # The work folder holds the download and the backup; it is kept when a rollback failed (the backup is then needed by hand).
+  trap 'if [[ $KEEP_WORK -eq 0 ]]; then rm -rf "$WORK"; fi' EXIT
   local args=(--platform linux --dir "$dir")
   [[ -f "$TOKEN_FILE" ]] && args+=(--token-file "$TOKEN_FILE")
   local out
@@ -105,13 +109,15 @@ main() {
   tar -C "$dir" --exclude=./data -cf "$WORK/backup.tar" .
   [[ -f "$dir/.env" ]] && cp -p "$dir/.env" "$WORK/env.bak"
   cp -p "$unit" "$WORK/unit.bak"
-  local was_active=0
+  local was_active=0 previous
   systemctl is-active --quiet "$SERVICE" && was_active=1
+  previous="$(sed -n 's/^current=//p' <<<"$out")"
+  previous="${previous:-unknown}"
 
   log "Installing version $latest"
   if ! bash "$src/deploy/linux/install.sh" --non-interactive --no-start --dir "$dir" </dev/null; then
-    rollback "$dir" "$unit" "$was_active"
-    die "The installer failed; the previous version was restored."
+    if rollback "$dir" "$unit" "$was_active" "$previous"; then die "The installer failed; the previous version was restored."; fi
+    die "The installer failed, and restoring version $previous failed too (see ROLLBACK FAILED above)."
   fi
   # The installer rewrites .env from the values it knows; put back the exact file (comments, extra settings).
   [[ -f "$WORK/env.bak" ]] && cp -p "$WORK/env.bak" "$dir/.env"
@@ -123,12 +129,10 @@ main() {
   fi
   systemctl daemon-reload || true
   if [[ $was_active -eq 1 ]]; then
-    systemctl restart "$SERVICE" || true
-    sleep 15
-    if ! systemctl is-active --quiet "$SERVICE"; then
+    if ! restart_and_check; then
       journalctl -u "$SERVICE" -n 20 --no-pager -o cat || true
-      rollback "$dir" "$unit" "$was_active"
-      die "Version $latest did not stay running; the previous version was restored."
+      if rollback "$dir" "$unit" "$was_active" "$previous"; then die "Version $latest did not stay running; the previous version was restored."; fi
+      die "Version $latest did not stay running, and restoring version $previous failed too (see ROLLBACK FAILED above)."
     fi
     log "Updated to version $latest; $SERVICE restarted."
   else
@@ -136,14 +140,42 @@ main() {
   fi
 }
 
-rollback() { # rollback <dir> <unit> <was_active>
-  log "Restoring the previous version"
-  find "$1" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec rm -rf {} +
-  tar -C "$1" -xpf "$WORK/backup.tar"
-  [[ -f "$WORK/env.bak" ]] && cp -p "$WORK/env.bak" "$1/.env"
-  cp -p "$WORK/unit.bak" "$2"
-  systemctl daemon-reload
-  if [[ $3 -eq 1 ]]; then systemctl restart "$SERVICE" || true; fi
+# Restart the bot and report whether it is still running 15 seconds later.
+restart_and_check() {
+  systemctl restart "$SERVICE" || true
+  sleep 15
+  systemctl is-active --quiet "$SERVICE"
+}
+
+# rollback <dir> <unit> <was_active> <previous version>: put the backup back and check that it worked.
+# Returns 0 when the previous version is back (and running again, if it was running). Otherwise logs
+# ROLLBACK FAILED with the manual recovery steps, keeps the backup and returns 1. Every step is
+# checked on its own, so a failing command cannot end the script (set -e) before the verdict is logged.
+rollback() {
+  local failed=""
+  log "Restoring the previous version ($4)"
+  find "$1" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec rm -rf {} + || failed+=" removing the new files failed;"
+  tar -C "$1" -xpf "$WORK/backup.tar" || failed+=" extracting the backup failed;"
+  if [[ -f "$WORK/env.bak" ]]; then cp -p "$WORK/env.bak" "$1/.env" || failed+=" restoring .env failed;"; fi
+  cp -p "$WORK/unit.bak" "$2" || failed+=" restoring $2 failed;"
+  systemctl daemon-reload || failed+=" systemctl daemon-reload failed;"
+  if [[ $3 -eq 1 ]] && ! restart_and_check; then
+    journalctl -u "$SERVICE" -n 20 --no-pager -o cat || true
+    failed+=" $SERVICE is not running after the restore;"
+  fi
+  if [[ -z "$failed" ]]; then return 0; fi
+  KEEP_WORK=1
+  local env_step=""
+  if [[ -f "$WORK/env.bak" ]]; then env_step="sudo cp -p $WORK/env.bak $1/.env; "; fi
+  {
+    printf 'ROLLBACK FAILED: version %s could not be restored;%s\n' "$4" "${failed%;}"
+    printf 'The backup is kept in %s (backup.tar = program files without data/, env.bak = .env, unit.bak = the systemd unit).\n' "$WORK"
+    printf 'To restore it by hand: sudo systemctl stop %s; sudo find %s -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec rm -rf {} +; ' "$SERVICE" "$1"
+    printf 'sudo tar -C %s -xpf %s/backup.tar; %ssudo cp -p %s/unit.bak %s; sudo systemctl daemon-reload; sudo systemctl start %s\n' "$1" "$WORK" "$env_step" "$WORK" "$2" "$SERVICE"
+    printf 'Or download foundryvtt-discord-integration-%s-linux.tar.gz from %s/releases/tag/v%s and run its deploy/linux/install.sh (it keeps .env and data/).\n' "$4" "$REPO_URL" "$4"
+    printf 'Then check: systemctl status %s; journalctl -u %s\n' "$SERVICE" "$SERVICE"
+  } >&2
+  return 1
 }
 
 main "$@"; exit $?

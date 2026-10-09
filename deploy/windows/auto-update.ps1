@@ -16,7 +16,8 @@
   installs it the same way as a manual upgrade: setup.exe /VERYSILENT, or for a zip installation
   copying the new files over the old ones (.env and data\ are never touched). The configuration
   file(s) are restored byte for byte afterwards and the bot's task is restarted. A failed zip
-  update is rolled back; a failed setup.exe rolls back its own changes.
+  update is rolled back (and the rollback checked: ROLLBACK FAILED in the log means manual
+  recovery, the backup is kept); a failed setup.exe rolls back its own changes.
 
   Log: %ProgramData%\FoundryVTT Discord integration\auto-update.log
   Optional GitHub token (only needed for a private fork): %ProgramData%\FoundryVTT Discord integration\github-token
@@ -38,6 +39,8 @@ $ConfigDir = Join-Path $env:ProgramData "FoundryVTT Discord integration"
 $LogFile = Join-Path $ConfigDir "auto-update.log"
 $TokenFile = Join-Path $ConfigDir "github-token"
 $Keep = @(".env", "data")
+$RepoUrl = "https://github.com/dxcufgb/FoundryVTT-discord-integration"
+$script:KeepWork = $false
 
 function Write-UpdateLog([string]$Message) {
   $line = "$(Get-Date -Format s) $Message"
@@ -152,10 +155,26 @@ function Copy-Payload([string]$From, [string]$To) {
   Get-ChildItem -Path $From -Force | Where-Object { $Keep -notcontains $_.Name } | Copy-Item -Destination $To -Recurse -Force
 }
 
-function Restore-Payload([string]$Backup) {
-  Write-UpdateLog "Restoring the previous version"
-  Get-ChildItem -Path $InstallDir -Force | Where-Object { $Keep -notcontains $_.Name } | Remove-Item -Recurse -Force
-  Copy-Payload -From $Backup -To $InstallDir
+# Put the backup of a zip installation back and check that it worked: each step must succeed and, if the bot
+# was running before, its task must be running again (Test-BotRunning). Otherwise log ROLLBACK FAILED with the
+# manual recovery steps, keep the backup (the work folder is not deleted) and throw.
+function Restore-PreviousVersion([string]$Backup, [string]$Version, [bool]$WasRunning) {
+  Write-UpdateLog "Restoring the previous version ($Version)"
+  $problems = @()
+  try { Get-ChildItem -Path $InstallDir -Force | Where-Object { $Keep -notcontains $_.Name } | Remove-Item -Recurse -Force } catch { $problems += "removing the new files failed ($($_.Exception.Message))" }
+  try { Copy-Payload -From $Backup -To $InstallDir } catch { $problems += "copying the backup back failed ($($_.Exception.Message))" }
+  if ($WasRunning) {
+    try { Start-ScheduledTask -TaskName $TaskName } catch { $problems += "starting the task '$TaskName' failed ($($_.Exception.Message))" }
+    if (-not (Test-BotRunning)) { $problems += "the task '$TaskName' is not running after the restore" }
+  }
+  if ($problems.Count -eq 0) { return }
+  $script:KeepWork = $true
+  Write-UpdateLog "ROLLBACK FAILED: version $Version could not be restored; $($problems -join '; ')."
+  Write-UpdateLog "  The backup is kept in $Backup (the program files without .env and data\)."
+  Write-UpdateLog "  To restore it by hand, from an elevated PowerShell: Stop-ScheduledTask -TaskName '$TaskName'; Copy-Item -Path '$Backup\*' -Destination '$InstallDir' -Recurse -Force; Start-ScheduledTask -TaskName '$TaskName'"
+  Write-UpdateLog "  Or download foundryvtt-discord-integration-$Version-windows.zip from $RepoUrl/releases/tag/v$Version and copy its files over $InstallDir (keep .env and data\)."
+  Write-UpdateLog "  Then check the task's Last Run Result in Task Scheduler and run 'Check configuration'."
+  throw "The update failed, and restoring version $Version failed too (see ROLLBACK FAILED above)."
 }
 
 function Restore-EnvFile([hashtable]$Saved) {
@@ -188,6 +207,7 @@ function Invoke-Update {
     if ($Check) { Write-UpdateLog "Version $($r.latest) is available. Install it now with: $PSCommandPath"; return }
     if (-not $r.file -or -not (Test-Path $r.file)) { throw "The downloaded file is missing." }
 
+    $previous = if ($r.current) { $r.current } else { "unknown" }
     $saved = @{}
     foreach ($f in (Join-Path $ConfigDir ".env"), (Join-Path $InstallDir ".env")) { if (Test-Path $f) { $saved[$f] = [IO.File]::ReadAllBytes($f) } }
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -224,8 +244,7 @@ function Invoke-Update {
         Restore-EnvFile $saved
       } catch {
         Write-UpdateLog "Copying failed: $($_.Exception.Message)"
-        Restore-Payload $backup
-        if ($wasRunning) { Start-ScheduledTask -TaskName $TaskName }
+        Restore-PreviousVersion -Backup $backup -Version $previous -WasRunning $wasRunning
         throw "The update failed; the previous version was restored."
       }
     }
@@ -243,14 +262,13 @@ function Invoke-Update {
       if (-not (Test-BotRunning)) {
         if ($isSetup) { throw "Version $($r.latest) is installed but the bot did not stay running; see Task Scheduler and run 'Check configuration'." }
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        Restore-Payload $backup
-        Start-ScheduledTask -TaskName $TaskName
+        Restore-PreviousVersion -Backup $backup -Version $previous -WasRunning $true
         throw "Version $($r.latest) did not stay running; the previous version was restored."
       }
     }
     Write-UpdateLog "Updated to version $($r.latest)."
   } finally {
-    Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue
+    if ($script:KeepWork) { Write-UpdateLog "Kept $work for the manual recovery; delete it once the bot runs again." } else { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }
   }
 }
 
