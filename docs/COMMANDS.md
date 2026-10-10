@@ -96,7 +96,7 @@ When the monitor reports that a campaign's world has started (🌍 *World starte
 
 Plan a campaign's next session. `set`, `event` and `clear` are for the **campaign's DM or an administrator**; `show` is for everyone.
 
-- `/session set campaign:<name> when:<time> [timezone:<IANA>]` — `when` is local time in `timezone` (default: the bot's `TIMEZONE`): `2026-10-12 19:00`, `2026-10-12T19:00`, `today 19:00`, `tomorrow 19:00`, or a Discord timestamp such as `<t:1760295600:F>`. Must be in the future and at most a year away.
+- `/session set campaign:<name> when:<time> [timezone:<IANA>]` — `when` is local time in `timezone` (default: the bot's `TIMEZONE`): `2026-10-12 19:00`, `2026-10-12T19:00`, `today 19:00`, `tomorrow 19:00`, or a Discord timestamp such as `<t:1760295600:F>`. Must be in the future and at most a year away. Also writes the date to the `nextSession` field of the world's `world.json` (needs `FOUNDRY_DATA_PATH`), so it shows in Foundry's setup screen; Foundry may need the world relaunched to pick it up. If that fails the session is still planned and the reply says why. `/session event` and `/session clear` do not touch `world.json`.
 - `/session event campaign:<name> link:<event link>` — paste the link of a Discord **scheduled event** in this server (*Copy Event Link*: `https://discord.com/events/<server>/<event>`) or its id. The event's start time becomes the next session time. Run it again after moving the event.
 - `/session clear campaign:<name>` — remove the planned session (and its pending reminder).
 - `/session show [campaign:<name>]` — the next session of one campaign, or of every campaign in the server.
@@ -113,7 +113,7 @@ Let a campaign vote on the date of its next session. Available to **server admin
    - **Decide date** — offers the dates with the most votes (all of them if tied). Pick one, then a start time (half-hour slots from 10:00 to 22:00, or *Other time…* to type `HH:MM`). The bot then creates a **Discord scheduled event** (an external event named *<campaign> session*, three hours long), announces date, time and event link in the poll's channel tagging everyone, and sets the campaign's **next session** (the same as `/session set`, so the 15-minute world check applies). It also writes the date to the `nextSession` field of the world's `world.json` (needs `FOUNDRY_DATA_PATH`), so it shows in Foundry's setup screen; Foundry may need the world relaunched to pick it up. The poll message is turned into the final result and its controls are removed.
    - **Delete poll** — deletes the poll message.
 
-The bot needs the *Create Events* permission to create the event. Without it the session is still planned and announced, with a note that the event could not be created. Writing `nextSession` to `world.json` is the only thing the bot ever writes to Foundry's folders; if that fails the reply says so and the rest still happens. Open polls survive a bot restart.
+The bot needs the *Create Events* permission to create the event. Without it the session is still planned and announced, with a note that the event could not be created. Writing `nextSession` to `world.json` (here and in `/session set`) is the only thing the bot ever writes to Foundry's folders; if that fails the reply says so and the rest still happens. Open polls survive a bot restart.
 
 ## `/gm-role` — admin
 
