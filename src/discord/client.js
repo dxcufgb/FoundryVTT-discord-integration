@@ -69,6 +69,7 @@ function safeSubcommand(interaction) {
 // enabled in the Developer Portal, so it is not requested in the owner and off modes; in admins mode
 // connectDiscord() then falls back to Guilds only and owner-only notices.
 export const INTENTS = Object.freeze([GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]);
+/** Request GuildMembers only when update notices must include server administrators. */
 export const intentsFor = (updateNotify) => (updateNotify === "admins" ? INTENTS : [GatewayIntentBits.Guilds]);
 export const DISALLOWED_INTENTS_MESSAGE =
   'Discord refused the connection: the "Server Members Intent" is not enabled for this bot. Open https://discord.com/developers/applications, ' +
@@ -87,6 +88,7 @@ export function isDisallowedIntents(x) {
   return /disallowed intents|privileged intent/i.test(String(x?.message ?? ""));
 }
 
+/** Create a Discord client with notification intents, interaction routing and error logging. */
 export function createClient(ctx, { log = console, updateNotify = ctx.config?.updateNotify } = {}) {
   const client = new Client({ intents: intentsFor(updateNotify) });
   client.on(Events.InteractionCreate, (interaction) => handleInteraction(interaction, ctx, { log }));
@@ -106,10 +108,12 @@ export function createClient(ctx, { log = console, updateNotify = ctx.config?.up
  */
 export function connectDiscord({ token, updateNotify, makeClient, log = console, onLost = () => process.exit(1) }) {
   return new Promise((resolve, reject) => {
+    /** Connect in the given notification mode and settle on readiness or login failure. */
     const attempt = (mode) => {
       const client = makeClient(mode);
       let settled = false;
       let ready = false;
+      /** Handle connection failure, retrying refused admin intents or reporting their later loss. */
       const fail = (err) => {
         if (ready && isDisallowedIntents(err)) {
           ready = false; // once: ShardDisconnect and ShardError can both report it

@@ -60,7 +60,9 @@ test("noticeContent prefers the updater's notice, else CHANGELOG.md", () => {
   assert.deepEqual(noticeContent({ version: "9.9.9", noticeFile, changelogFile: path.join(dir, "nope.md"), log: quietLog }), { changelog: null, url: null });
 });
 
+/** Create a member fixture with configurable bot status and Administrator permission. */
 const admin = (id, { bot = false, isAdmin = true } = {}) => ({ id, user: { id, bot }, permissions: { has: (flag) => isAdmin && flag === PermissionFlagsBits.Administrator } });
+/** Create a guild whose member fetch returns the supplied members or simulates missing access. */
 function fakeGuild(id, name, ownerId, members, { failFetch = false } = {}) {
   return { id, name, ownerId, members: { fetch: async () => { if (failFetch) throw Object.assign(new Error("Missing Access"), { code: 50001 }); return new Map(members.map((m) => [m.id, m])); } } };
 }
@@ -103,6 +105,7 @@ test("buildUpdateNoticeMessage: title, link, servers, no mentions, and Discord's
   assert.equal(truncate("abc", 4), "abc");
 });
 
+/** Create a client that records sent DMs and simulates delivery failures by user ID. */
 function fakeClient(guilds, { failFor = {} } = {}) {
   const sent = [];
   return {
@@ -120,6 +123,7 @@ function fakeClient(guilds, { failFor = {} } = {}) {
   };
 }
 
+/** Prepare temporary state and release notes, a fake client and an update runner without DM delays. */
 function setup({ recorded, running = "1.3.0", notice = null, failFor = {} } = {}) {
   const state = tmpState();
   if (recorded !== undefined) state.data.botVersion = recorded;
@@ -206,6 +210,7 @@ test("the client asks for the Server Members intent only for admins and recognis
   assert.match(DISALLOWED_INTENTS_MESSAGE, /Server Members Intent/);
 });
 
+/** Build a login harness with ordered client behaviours and captured clients, logs and intent losses. */
 function loginHarness(behaviours) {
   const made = [];
   const logs = [];

@@ -9,6 +9,7 @@ import path from "node:path";
 export const MESSAGE_TYPES = Object.freeze(["default", "status", "world", "updates", "restart", "session"]);
 export const MONITORS = Object.freeze(["status", "world", "updates"]);
 
+/** Create fresh persistent state with default monitoring settings and no recorded bot version. */
 export function defaultState() {
   return {
     version: 1,

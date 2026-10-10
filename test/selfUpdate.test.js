@@ -49,6 +49,7 @@ test("parseChecksums reads sha256sum and Get-FileHash output, with directories, 
   assert.equal(sums.size, 2);
 });
 
+/** Build a GitHub release fixture with API and public download URLs for the named assets. */
 const release = (version, names) => ({
   tag_name: `v${version}`,
   assets: names.map((name) => ({ name, url: `https://api.github.com/repos/o/r/releases/assets/${name}`, browser_download_url: `https://github.com/o/r/releases/download/v${version}/${name}` })),
@@ -91,6 +92,7 @@ function fakeGithub({ version = "1.3.0", bundle = Buffer.from("bundle bytes"), s
   return { fetchImpl, calls, name };
 }
 
+/** Create a temporary installation containing a package.json with the requested version. */
 function installDir(version) {
   const dir = tmpDir("fvtt-selfupdate-");
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version }));

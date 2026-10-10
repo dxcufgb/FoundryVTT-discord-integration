@@ -18,6 +18,7 @@ import { registerCommands } from "./discord/registerCommands.js";
 import { announceUpdate } from "./updateNotice.js";
 import { installedVersion } from "./selfUpdate.js";
 
+/** Load configuration and state, connect to Discord, announce updates and start Foundry polling. */
 async function main() {
   let config;
   try {
@@ -76,6 +77,7 @@ async function main() {
 
   let timer = null;
   let client = null;
+  /** Stop polling, destroy the Discord client and exit successfully after a shutdown signal. */
   const shutdown = (signal) => {
     log.info(`Received ${signal}, shutting down.`);
     if (timer) clearInterval(timer);
