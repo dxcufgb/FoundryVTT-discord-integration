@@ -8,13 +8,13 @@ The bot runs on the **same machine as Foundry VTT** so it can reach Foundry on i
 2. **General Information** → copy the **Application ID**. This is `DISCORD_CLIENT_ID`.
 3. **Bot** → click **Reset Token**, copy the token. This is `DISCORD_TOKEN`. Treat it like a password.
 4. Recommended: still under **Bot** → *Privileged Gateway Intents*, **turn on *Server Members Intent*** and save (leave *Presence* and *Message Content* off). The bot uses it only to find each server's administrators for the [update notice](#update-notices), and only requests it when `UPDATE_NOTIFY` is `admins` (the default). Without it the bot still runs: Discord refuses the intent, the bot logs one warning (`The "Server Members Intent" is not enabled for this bot, so update notices will go to server owners only …`), connects again without it and sends update notices to server owners only.
-5. **Installation** → under *Install Link* choose *Discord Provided Link*, and under *Default Install Settings → Guild Install* add the scopes `applications.commands` and `bot`, with these bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Embed Links** and, if you want the bot to ping a role, **Mention @everyone, @here and All Roles** (or make that role mentionable).
+5. **Installation** → under *Install Link* choose *Discord Provided Link*, and under *Default Install Settings → Guild Install* add the scopes `applications.commands` and `bot`, with these bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Embed Links**, **Create Events** (for `/planning-poll`) and, if you want the bot to ping a role, **Mention @everyone, @here and All Roles** (or make that role mentionable).
 6. Open the install link in your browser and add the bot to your server.
 
 If you prefer to build the invite link yourself:
 
 ```
-https://discord.com/oauth2/authorize?client_id=<APPLICATION ID>&scope=bot+applications.commands&permissions=274878057472
+https://discord.com/oauth2/authorize?client_id=<APPLICATION ID>&scope=bot+applications.commands&permissions=17867064101888
 ```
 
 ## 2. Install on Linux (guided installer)
@@ -107,6 +107,12 @@ In your Discord server (as an administrator):
 5. `/test-message type:status` to confirm the bot can post there.
 
 The bot must be able to **view** and **send messages** in each chosen channel (check the channel's permissions for the bot's role).
+
+### Permissions, reinstalling and removing the bot
+
+- Permissions can be changed after the bot has joined: *Server Settings → Roles →* the bot's role (or a channel's permission overrides). No reinstall is needed. The bot checks its permissions at startup and whenever its role or a channel changes, and if something is missing it says so **once** in the server's `status` channel (falling back to the `default` channel). Set one with `/channel set type:status`.
+- The one thing editing permissions cannot fix is a bot added **without the `applications.commands` scope**. The bot detects that and posts the invite link in the status channel; an administrator opens it and authorises again (the bot does not have to be removed first).
+- The settings of a server (channels, mention role, game master role, campaigns, planned sessions, open polls) are kept in `state.json`, keyed by the server. They are **not** deleted when the bot is removed, so inviting it back restores everything and there is nothing to set up again. Deleting `state.json` or the data folder does reset it.
 
 ## Upgrading
 

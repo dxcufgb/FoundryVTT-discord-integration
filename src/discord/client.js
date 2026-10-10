@@ -4,6 +4,7 @@
 
 import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { commandMap, requiresAdmin } from "./commands/index.js";
+import { handlePollComponent } from "./commands/planningPoll.js";
 import { GUILD_ONLY_MESSAGE, isGuildAdministrator, NOT_ADMIN_MESSAGE } from "./permissions.js";
 
 /**
@@ -13,6 +14,9 @@ import { GUILD_ONLY_MESSAGE, isGuildAdministrator, NOT_ADMIN_MESSAGE } from "./p
  */
 export async function handleInteraction(interaction, ctx, { log = console } = {}) {
   if (interaction.isAutocomplete?.()) return handleAutocomplete(interaction, ctx, { log });
+  if (String(interaction.customId ?? "").startsWith("poll:") && (interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isModalSubmit?.())) {
+    return runSafely(() => handlePollComponent(interaction, ctx), interaction, "poll component", log);
+  }
   if (!interaction.isChatInputCommand?.()) return;
   const command = commandMap.get(interaction.commandName);
   if (!command) return;
@@ -27,10 +31,14 @@ export async function handleInteraction(interaction, ctx, { log = console } = {}
     }
   }
 
+  await runSafely(() => command.execute(interaction, ctx), interaction, `command /${interaction.commandName} ${subcommand ?? ""}`, log);
+}
+
+async function runSafely(run, interaction, what, log) {
   try {
-    await command.execute(interaction, ctx);
+    await run();
   } catch (err) {
-    log.error(`command /${interaction.commandName} ${subcommand ?? ""} failed:`, err);
+    log.error(`${what} failed:`, err);
     const payload = { content: "Something went wrong while running that command. Check the bot's log.", flags: MessageFlags.Ephemeral };
     try {
       if (interaction.deferred || interaction.replied) await interaction.editReply({ content: payload.content });

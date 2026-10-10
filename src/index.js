@@ -6,7 +6,7 @@ import { loadConfig, PROJECT_ROOT } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
-import { listWorlds, readFoundryVersion, readWorld, scanPackages } from "./foundry/packages.js";
+import { listWorlds, readFoundryVersion, readWorld, scanPackages, writeWorldNextSession } from "./foundry/packages.js";
 import { scanWorldsWithModules } from "./foundry/worlds.js";
 import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
@@ -14,6 +14,7 @@ import { Notifier } from "./notifier.js";
 import { SessionScheduler } from "./sessions.js";
 import { connectDiscord, createClient } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
+import { watchGuildHealth } from "./discord/health.js";
 import { registerCommands } from "./discord/registerCommands.js";
 import { announceUpdate } from "./updateNotice.js";
 import { installedVersion } from "./selfUpdate.js";
@@ -49,6 +50,7 @@ async function main() {
     scanPackages: scanInstalled,
     readFoundryVersion: readInstalledFoundryVersion,
     worldsWithModules: () => (config.foundry.dataPath ? scanWorldsWithModules(config.foundry.dataPath, { log }) : []),
+    setWorldNextSession: (worldId, when) => writeWorldNextSession(config.foundry.dataPath, worldId, when),
     website: new FoundryWebsite({ baseUrl: config.foundry.websiteUrl, log }),
     log,
     now: () => new Date(),
@@ -93,7 +95,12 @@ async function main() {
   const connected = await connectDiscord({
     token: config.discord.token,
     updateNotify: config.updateNotify,
-    makeClient: (updateNotify) => (client = createClient(ctx, { log, updateNotify })),
+    makeClient: (updateNotify) => {
+      client = createClient(ctx, { log, updateNotify });
+      ctx.client = client;
+      watchGuildHealth(client, ctx); // its ClientReady listener must be in place before login
+      return client;
+    },
     log,
   });
   client = connected.client;
