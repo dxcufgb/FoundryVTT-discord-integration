@@ -11,6 +11,11 @@
 #   sudo ./deploy/linux/install.sh --non-interactive --token <bot token> --client-id <id> \
 #        --data-path /home/foundry/foundrydata [--user foundry] [--dir /opt/foundryvtt-discord-integration] \
 #        [--url http://localhost:30000] [--guild-id <id>] [--timezone Europe/Stockholm] [--interval 30] [--no-start]
+#        [--auto-update | --no-auto-update]
+#
+# Automatic updates (opt-in; a daily systemd timer installs new releases, see docs/INSTALL.md):
+#   sudo ./deploy/linux/install.sh --enable-auto-update | --disable-auto-update [--dir <install folder>]
+#   (re-running the installer keeps the current choice unless --auto-update/--no-auto-update is given)
 #
 # Remove again:
 #   sudo ./deploy/linux/install.sh --uninstall [--purge]      (--purge also deletes the files, .env and data)
@@ -23,6 +28,7 @@ set -euo pipefail
 REPO="dxcufgb/FoundryVTT-discord-integration"
 SERVICE="foundryvtt-discord-bot"
 APP_NAME="foundryvtt-discord-integration"
+UPDATER="$SERVICE-update"
 
 # --- output helpers -------------------------------------------------------------------------------------------
 if [[ -t 1 ]]; then BOLD=$'\e[1m'; DIM=$'\e[2m'; GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; RESET=$'\e[0m'; else BOLD=""; DIM=""; GREEN=""; YELLOW=""; RED=""; RESET=""; fi
@@ -48,8 +54,10 @@ APP_PATH=""
 TIMEZONE=""
 INTERVAL=""
 VERSION="latest"
+AUTO_UPDATE=""   # empty: keep the current choice (ask when interactive); 1 / 0: turn on / off
+UPDATER_ONLY=0
 
-usage() { sed -n '2,24p' "$0"; }
+usage() { sed -n '2,25p' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --non-interactive|-y) INTERACTIVE=0; shift ;;
@@ -67,6 +75,10 @@ while [[ $# -gt 0 ]]; do
     --timezone) TIMEZONE="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
+    --auto-update) AUTO_UPDATE=1; shift ;;
+    --no-auto-update) AUTO_UPDATE=0; shift ;;
+    --enable-auto-update) AUTO_UPDATE=1; UPDATER_ONLY=1; shift ;;
+    --disable-auto-update) AUTO_UPDATE=0; UPDATER_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
@@ -112,19 +124,77 @@ ask_yn() { # ask_yn "Question" default(y|n) -> returns 0 for yes
   [[ "$answer" =~ ^[Yy] ]]
 }
 
+# --- automatic updates (systemd timer + oneshot service running deploy/linux/auto-update.sh) ---------------------
+auto_update_on() { systemctl is-enabled --quiet "$UPDATER.timer" 2>/dev/null; }
+# Prints the first path in <install dir> (or a parent folder) that someone other than root could change, if any.
+# The updater runs these files as root, so such a path would let that account run code as root.
+unsafe_path() { # unsafe_path <install dir>
+  local p bad
+  # Resolve symlinks first: the updater must not run code reached through a link into a writable place.
+  p="$(realpath -e "$1" 2>/dev/null)" || { echo "$1"; return 0; }
+  set -- "$p"
+  bad="$(find "$1" \( -path "$1/data" -o -path "$1/.env" \) -prune -o ! -type l \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print -quit 2>/dev/null)"
+  if [[ -n "$bad" ]]; then echo "$bad"; return 0; fi
+  while p="$(dirname "$p")"; [[ "$p" != / ]]; do
+    if [[ -n "$(find "$p" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]]; then
+      echo "$p"
+      return 0
+    fi
+  done
+  return 0
+}
+enable_auto_update() { # enable_auto_update <install dir>
+  [[ -f "$1/deploy/linux/auto-update.sh" && -f "$1/scripts/self-update.js" ]] || die "$1 has no auto-updater (install a newer version first)."
+  local bad
+  bad="$(unsafe_path "$1")"
+  [[ -z "$bad" ]] || die "$bad can be changed by an account other than root, and the auto-updater runs as root. Install to a folder only root can write (the installer's default /opt/$APP_NAME), not in place from a checkout."
+  # The updater runs the bot's Node.js as root as well.
+  local node p
+  node="$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' "/etc/systemd/system/$SERVICE.service" 2>/dev/null || true)"
+  [[ -x "$node" ]] || node="$(command -v node || true)"
+  p="$(realpath -e "$node" 2>/dev/null)" || die "Node.js not found."
+  while [[ "$p" != / ]]; do
+    if [[ -n "$(find "$p" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)" ]]; then
+      die "$p can be changed by an account other than root, and the auto-updater runs this Node.js as root. Install Node.js system-wide (from your distribution or NodeSource), not with nvm in a home folder."
+    fi
+    p="$(dirname "$p")"
+  done
+  sed -e "s|__INSTALL_DIR__|$1|g" "$1/deploy/linux/$UPDATER.service" > "/etc/systemd/system/$UPDATER.service"
+  cp "$1/deploy/linux/$UPDATER.timer" "/etc/systemd/system/$UPDATER.timer"
+  chmod 644 "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"
+  systemctl daemon-reload
+  systemctl enable --now "$UPDATER.timer" >/dev/null 2>&1 || systemctl enable --now "$UPDATER.timer"
+  ok "Automatic updates on: new releases are installed daily (log: journalctl -u $UPDATER)"
+}
+disable_auto_update() {
+  systemctl disable --now "$UPDATER.timer" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"
+  systemctl daemon-reload
+  ok "Automatic updates off"
+}
+dir_from_unit() { sed -n 's/^WorkingDirectory=//p' "/etc/systemd/system/$SERVICE.service" 2>/dev/null || true; }
+
+if [[ $UPDATER_ONLY -eq 1 ]]; then
+  INSTALL_DIR="${INSTALL_DIR:-$(dir_from_unit)}"
+  INSTALL_DIR="${INSTALL_DIR:-/opt/$APP_NAME}"
+  if [[ $AUTO_UPDATE -eq 1 ]]; then enable_auto_update "${INSTALL_DIR%/}"; else disable_auto_update; fi
+  exit 0
+fi
+
 # --- uninstall ------------------------------------------------------------------------------------------------
 if [[ $UNINSTALL -eq 1 ]]; then
   step "Removing the $SERVICE service"
   UNIT=/etc/systemd/system/$SERVICE.service
-  DIR_FROM_UNIT="$(sed -n 's/^WorkingDirectory=//p' "$UNIT" 2>/dev/null || true)"
+  DIR_FROM_UNIT="$(dir_from_unit)"
   INSTALL_DIR="${INSTALL_DIR:-${DIR_FROM_UNIT:-/opt/$APP_NAME}}"
+  if [[ -f "/etc/systemd/system/$UPDATER.timer" ]]; then disable_auto_update; fi
   systemctl disable --now "$SERVICE" 2>/dev/null || true
   rm -f "$UNIT"
   systemctl daemon-reload
   ok "Service removed"
   if [[ -d "$INSTALL_DIR" ]]; then
     if [[ $PURGE -eq 1 ]] || ask_yn "Also delete $INSTALL_DIR (including .env and the data folder)?" n; then
-      rm -rf "$INSTALL_DIR"; ok "Deleted $INSTALL_DIR"
+      rm -rf "$INSTALL_DIR" "/etc/${APP_NAME:?}"; ok "Deleted $INSTALL_DIR"
     else
       say "  Files kept in $INSTALL_DIR"
     fi
@@ -137,7 +207,7 @@ say "${DIM}Press Enter to accept the value in [brackets].${RESET}"
 
 # --- 1. where do the files come from? -------------------------------------------------------------------------
 step "Locating the bot files"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
+if ! HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"; then HERE="$PWD"; fi
 SOURCE=""
 for candidate in "$HERE/../.." "$HERE" "$PWD"; do
   if [[ -f "$candidate/package.json" && -f "$candidate/src/index.js" ]]; then SOURCE="$(cd "$candidate" && pwd)"; break; fi
@@ -198,7 +268,7 @@ if [[ -n "$FOUNDRY_PID" ]]; then
   DETECTED_DATA="$(sed -n 's/.*--dataPath[= ]\([^ ]*\).*/\1/p' <<<"$CMDLINE")"
   DETECTED_PORT="$(sed -n 's/.*--port[= ]\([0-9]*\).*/\1/p' <<<"$CMDLINE")"
   MAIN_JS="$(grep -o '[^ ]*resources/app/main\.js' <<<"$CMDLINE" | head -n1)"
-  [[ -n "$MAIN_JS" ]] && DETECTED_APP="$(cd "$(dirname "$MAIN_JS")/../.." 2>/dev/null && pwd || true)"
+  if [[ -n "$MAIN_JS" ]]; then DETECTED_APP="$(cd "$(dirname "$MAIN_JS")/../.." 2>/dev/null && pwd)" || DETECTED_APP=""; fi
   ok "Foundry is running as user '$DETECTED_USER' (pid $FOUNDRY_PID)"
 else
   warn "No running Foundry process found; you will be asked for its settings."
@@ -237,7 +307,7 @@ if [[ -f "$INSTALL_DIR/.env" ]]; then
 fi
 
 DEFAULT_USER="${DETECTED_USER:-${SUDO_USER:-root}}"
-hint() { [[ $INTERACTIVE -eq 1 ]] && say "$@" || true; }
+hint() { if [[ $INTERACTIVE -eq 1 ]]; then say "$@"; fi; }
 hint
 hint "  The bot runs as a Linux user that must be able to read Foundry's data folder."
 hint "  Using the same user as Foundry is the simplest choice."
@@ -246,7 +316,8 @@ id "$RUN_USER" >/dev/null 2>&1 || die "User '$RUN_USER' does not exist."
 
 hint
 hint "  Discord: create an application at https://discord.com/developers/applications,"
-hint "  copy the Application ID (General Information) and the bot token (Bot → Reset Token)."
+hint "  copy the Application ID (General Information) and the bot token (Bot → Reset Token), and turn on"
+hint "  Server Members Intent under Bot → Privileged Gateway Intents (without it update notices go to server owners only)."
 ask_secret TOKEN "Discord bot token (input hidden)"
 [[ -n "$TOKEN" ]] || die "A Discord bot token is required (--token in non-interactive mode)."
 ask CLIENT_ID "Discord application (client) ID"
@@ -274,20 +345,42 @@ ask TIMEZONE "Timezone for restart windows (IANA name)" "${DEFAULT_TZ:-UTC}"
 ask INTERVAL "Check Foundry every N seconds" "30"
 [[ "$INTERVAL" =~ ^[0-9]+$ && $INTERVAL -ge 5 ]] || die "The interval must be a whole number of at least 5 seconds."
 
+if [[ -z "$AUTO_UPDATE" ]]; then
+  if auto_update_on; then AUTO_DEFAULT=y; else AUTO_DEFAULT=n; fi
+  if [[ $INTERACTIVE -eq 1 ]]; then
+    hint
+    hint "  Automatic updates check GitHub once a day and install a newer release the same way as"
+    hint "  running this installer again (.env and data/ are kept; it rolls back if the update fails)."
+    if ask_yn "Install new releases automatically?" "$AUTO_DEFAULT"; then AUTO_UPDATE=1; else AUTO_UPDATE=0; fi
+  elif [[ $AUTO_DEFAULT == y ]]; then
+    AUTO_UPDATE=1
+  fi
+fi
+
 # --- 5. install files ----------------------------------------------------------------------------------------------
 step "Installing to $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 if [[ "$(cd "$SOURCE" && pwd)" != "$(cd "$INSTALL_DIR" && pwd)" ]]; then
   # Copy everything except local configuration and state, which are kept on upgrades.
-  tar -C "$SOURCE" --exclude=./.env --exclude=./data --exclude=./.git -cf - . | tar -C "$INSTALL_DIR" -xf -
+  tar -C "$SOURCE" --exclude=./.env --exclude=./data --exclude=./.git -cf - . | tar -C "$INSTALL_DIR" --no-same-owner -xf -
+  COPIED=1
   ok "Files copied"
 else
+  COPIED=0
   ok "Installing in place"
 fi
+umask 022
 if [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
   command -v npm >/dev/null || die "npm is needed to install dependencies (it comes with Node.js)."
   (cd "$INSTALL_DIR" && npm ci --omit=dev --no-audit --no-fund)
   ok "Dependencies installed"
+fi
+if [[ $COPIED -eq 1 ]]; then
+  # Program files belong to root (npm may hand node_modules to another owner): the auto-updater runs them as root,
+  # so the bot's account must not be able to change them.
+  chown root:root "$INSTALL_DIR"
+  chmod go-w "$INSTALL_DIR"
+  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} + -exec chmod -R go-w {} +
 fi
 
 umask 077
@@ -338,6 +431,11 @@ if [[ $START -eq 1 ]]; then
 else
   say "  Not started (--no-start). Start it with: sudo systemctl start $SERVICE"
 fi
+if [[ $AUTO_UPDATE == 1 ]]; then
+  enable_auto_update "$INSTALL_DIR"
+elif [[ $AUTO_UPDATE == 0 && -f "/etc/systemd/system/$UPDATER.timer" ]]; then
+  disable_auto_update
+fi
 
 # --- 7. done ---------------------------------------------------------------------------------------------------------
 printf '\n%sInstalled.%s\n\n' "$GREEN$BOLD" "$RESET"
@@ -353,4 +451,10 @@ say
 say "  Useful commands:"
 say "    sudo journalctl -u $SERVICE -f     follow the log"
 say "    sudo systemctl restart $SERVICE    after editing $INSTALL_DIR/.env"
+if [[ $AUTO_UPDATE == 1 ]]; then
+  say "    sudo $INSTALL_DIR/deploy/linux/auto-update.sh --check     is there a newer release? (updates run daily)"
+  say "    sudo $INSTALL_DIR/deploy/linux/install.sh --disable-auto-update"
+else
+  say "    sudo $INSTALL_DIR/deploy/linux/install.sh --enable-auto-update   install new releases automatically"
+fi
 say "    sudo $INSTALL_DIR/deploy/linux/install.sh --uninstall"

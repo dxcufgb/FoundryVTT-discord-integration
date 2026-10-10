@@ -2,8 +2,7 @@
 // slash commands and start polling Foundry.
 
 import path from "node:path";
-import { Events } from "discord.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, PROJECT_ROOT } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { StateStore } from "./state.js";
 import { createStatusFetcher } from "./foundry/status.js";
@@ -13,11 +12,14 @@ import { FoundryWebsite } from "./foundry/releases.js";
 import { FoundryMonitor } from "./foundry/monitor.js";
 import { Notifier } from "./notifier.js";
 import { SessionScheduler } from "./sessions.js";
-import { createClient } from "./discord/client.js";
+import { connectDiscord, createClient } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
 import { watchGuildHealth } from "./discord/health.js";
 import { registerCommands } from "./discord/registerCommands.js";
+import { announceUpdate } from "./updateNotice.js";
+import { installedVersion } from "./selfUpdate.js";
 
+/** Load configuration and state, connect to Discord, announce updates and start Foundry polling. */
 async function main() {
   let config;
   try {
@@ -53,10 +55,6 @@ async function main() {
     log,
     now: () => new Date(),
   };
-  const client = createClient(ctx, { log });
-  ctx.client = client;
-  watchGuildHealth(client, ctx);
-  ctx.notifier = new Notifier({ client, state, worldTitle, log });
   ctx.sessions = new SessionScheduler({ state, emit: (event) => ctx.notifier.deliver(event), log });
   ctx.monitor = new FoundryMonitor({
     fetchStatus,
@@ -80,30 +78,63 @@ async function main() {
   };
 
   let timer = null;
-  client.once(Events.ClientReady, async (c) => {
-    log.info(`Logged in to Discord as ${c.user.tag} in ${c.guilds.cache.size} server(s).`);
-    try {
-      await registerCommands(config, commands, { log });
-    } catch (err) {
-      log.error("Could not register slash commands:", err?.message ?? err);
-    }
-    if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
-    await poll();
-    timer = setInterval(poll, config.pollIntervalSeconds * 1000);
-    log.info(`Checking Foundry every ${config.pollIntervalSeconds} s.`);
-  });
-
+  let client = null;
+  /** Stop polling, destroy the Discord client and exit successfully after a shutdown signal. */
   const shutdown = (signal) => {
     log.info(`Received ${signal}, shutting down.`);
     if (timer) clearInterval(timer);
-    client.destroy();
+    client?.destroy();
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("unhandledRejection", (err) => log.error("Unhandled promise rejection:", err));
 
-  await client.login(config.discord.token);
+  // With UPDATE_NOTIFY=admins and the Server Members Intent not enabled in the Developer Portal, Discord
+  // refuses the connection; connectDiscord then warns once and connects again in owner mode.
+  const connected = await connectDiscord({
+    token: config.discord.token,
+    updateNotify: config.updateNotify,
+    makeClient: (updateNotify) => {
+      client = createClient(ctx, { log, updateNotify });
+      ctx.client = client;
+      watchGuildHealth(client, ctx); // its ClientReady listener must be in place before login
+      return client;
+    },
+    log,
+  });
+  client = connected.client;
+  ctx.client = client;
+  ctx.notifier = new Notifier({ client, state, worldTitle, log });
+
+  const c = connected.readyClient;
+  log.info(`Logged in to Discord as ${c.user.tag} in ${c.guilds.cache.size} server(s).`);
+  try {
+    await registerCommands(config, commands, { log });
+  } catch (err) {
+    log.error("Could not register slash commands:", err?.message ?? err);
+  }
+  // Fire and forget: DMs are sent one by one and must not hold up monitoring.
+  void announceUpdate({
+    client: c,
+    state,
+    version: (() => {
+      try {
+        return installedVersion(PROJECT_ROOT);
+      } catch {
+        return null;
+      }
+    })(),
+    mode: connected.updateNotify,
+    botDataDir: config.botDataDir,
+    projectRoot: PROJECT_ROOT,
+    repoUrl: "https://github.com/dxcufgb/FoundryVTT-discord-integration",
+    log,
+  });
+  if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
+  await poll();
+  timer = setInterval(poll, config.pollIntervalSeconds * 1000);
+  log.info(`Checking Foundry every ${config.pollIntervalSeconds} s.`);
 }
 
 main().catch((err) => {

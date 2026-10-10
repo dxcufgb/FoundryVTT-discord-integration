@@ -1,0 +1,13 @@
+# Daily check for a new release of the Foundry VTT Discord integration (opt-in auto-update).
+# Installed by deploy/linux/install.sh --auto-update; removed by --disable-auto-update or --uninstall.
+
+[Unit]
+Description=Daily auto-update check for the Foundry VTT Discord integration
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

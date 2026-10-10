@@ -38,7 +38,7 @@ Everything is configured from Discord with slash commands. Configuration command
 
 ## Installation
 
-Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**):
+Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**; also turn on **Server Members Intent** under *Bot → Privileged Gateway Intents* so update notices reach every server Administrator, otherwise the bot logs a warning and sends them to server owners only):
 
 **Linux** (on the machine that runs Foundry):
 
@@ -49,6 +49,8 @@ curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/la
 The guided installer checks for Node.js, finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, and installs a systemd service. It also has a `--non-interactive` mode for scripted installs.
 
 **Windows:** download `foundryvtt-discord-integration-<version>-setup.exe` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard installs Node.js if needed, asks the same questions and registers a Scheduled Task that runs the bot at boot. Silent installs take the answers as `/DiscordToken=… /ClientId=…` parameters.
+
+**Automatic updates** (opt-in, off by default): both installers offer to check GitHub once a day and install a newer release the same way as a manual upgrade, keeping `.env` and the data folder. Linux and Windows zip installs roll back if the update fails; a Windows `setup.exe` update only undoes its own changes if setup itself fails. Turn it on or off later with `sudo …/deploy/linux/install.sh --enable-auto-update` / `--disable-auto-update` or `deploy\windows\auto-update.ps1 -Enable` / `-Disable`; see [Automatic updates](docs/INSTALL.md#automatic-updates).
 
 Then, in Discord, run `/channel set type:default` in the channel where messages should go, and fine-tune with the commands below.
 
@@ -101,6 +103,7 @@ All settings are environment variables, read from `.env` (see [`.env.example`](.
 | `DOWN_AFTER_FAILURES` | `2` | Failed checks in a row before Foundry counts as down. |
 | `TIMEZONE` | `UTC` | Default timezone for restart windows (IANA name, e.g. `Europe/Stockholm`). |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
+| `UPDATE_NOTIFY` | `admins` | Who gets a direct message with the changelog after the bot was updated: `admins` (owner and every Administrator of each server; needs the Server Members Intent, otherwise the bot warns and messages owners only), `owner` or `off`. |
 
 `npm run check-config` validates `.env`, probes Foundry, counts the installed packages and worlds and tells how many modules no world uses, without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
 
@@ -112,7 +115,7 @@ npm test            # unit tests (node:test, no extra tooling)
 npm start           # run the bot with the .env in this folder
 ```
 
-Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, the LevelDB reader (against databases written by Foundry's own LevelDB binding, see `scripts/make-leveldb-fixtures.js`), world/module usage, the compatibility and update logic (with a fake foundryvtt.com), and campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd, and compiles, silently installs and uninstalls the Windows setup.
+Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, the LevelDB reader (against databases written by Foundry's own LevelDB binding, see `scripts/make-leveldb-fixtures.js`), world/module usage, the compatibility and update logic (with a fake foundryvtt.com), campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings), and the self-updater's release check (semantic version order, asset choice, checksum parsing and verification, the token staying on api.github.com, with a fake GitHub). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd (including an automatic update to the latest release through the systemd timer's service), and compiles, silently installs, auto-updates and uninstalls the Windows setup.
 
 Releases: see **[docs/RELEASING.md](docs/RELEASING.md)**.
 

@@ -18,6 +18,8 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - `src/state.js` — persistent JSON state (atomic writes); `MESSAGE_TYPES` lives here.
 - `src/messages.js`, `src/notifier.js` — embeds and posting.
 - `src/campaigns.js`, `src/sessions.js`, `src/restartWindow.js` — domain logic.
+- `src/updateNotice.js` — after a bot update, DM the changelog to server admins once. `UPDATE_NOTIFY` = `admins` (default, needs the Server Members intent) / `owner` / `off`; `connectDiscord` in `src/discord/client.js` falls back to `owner` when Discord refuses the intent.
+- `src/selfUpdate.js` + `scripts/self-update.js` — opt-in auto-update (release check, download, SHA-256); `deploy/linux/auto-update.sh` (root, `foundryvtt-discord-bot-update.timer`) and `deploy/windows/auto-update.ps1` (SYSTEM, daily task) install it and roll back on failure.
 - `deploy/` — Linux (systemd) and Windows (Task Scheduler, Inno Setup) installers.
 - `docs/` — `COMMANDS.md`, `INSTALL.md`, `RELEASING.md`.
 
@@ -28,6 +30,7 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - Replies to configuration commands are ephemeral.
 - Foundry data (LevelDB, manifests) is read-only; never write to Foundry's folders. The one exception: `writeWorldNextSession` (`src/foundry/packages.js`) sets the `nextSession` key of a world's `world.json` when a planning poll decides a date. Do not widen it.
 - Never commit `.env`, `data/` or tokens.
+- Auto-update stays opt-in and runs as root/SYSTEM: the install folder, its parents, the program files and the Node binary must not be changeable by a non-root account (`install.sh` makes them `root`-owned and `go-w`; the updater refuses otherwise). Upgrades keep `.env` and `data/`. A rollback that fails logs "ROLLBACK FAILED", keeps the backup and exits non-zero. The GitHub token goes only to `api.github.com`, never to logs.
 
 ## Docs and changelog
 

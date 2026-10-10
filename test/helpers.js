@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { PermissionFlagsBits } from "discord.js";
+import { EventEmitter } from "node:events";
+import { Events, PermissionFlagsBits } from "discord.js";
 import { StateStore } from "../src/state.js";
 
 export function tmpDir(prefix = "fvtt-bot-test-") {
@@ -85,4 +86,38 @@ export function fakeInteraction({ command, subcommand = null, options = {}, admi
     async followUp(p) { replies.push(p); },
     async respond(choices) { this.responded = true; replies.push({ choices }); },
   };
+}
+
+/**
+ * Minimal stand-in for a discord.js Client for login tests. `behaviour` decides what login() does:
+ * "ready" (connects), "refuse" (login rejects with Discord's disallowed-intents error), "refuse-later"
+ * (login resolves, then the shard closes with 4014) or "fail" (login rejects with another error).
+ */
+export function fakeLoginClient(behaviour) {
+  const client = new EventEmitter();
+  Object.assign(client, {
+    destroyed: false,
+    logins: [],
+    user: { tag: "bot#0001" },
+    destroy() {
+      client.destroyed = true;
+    },
+    async login(token) {
+      client.logins.push(token);
+      if (behaviour === "refuse") throw new Error("Used disallowed intents");
+      if (behaviour === "fail") throw new Error("An invalid token was provided.");
+      setImmediate(() => {
+        if (behaviour === "refuse-later") client.emit(Events.ShardDisconnect, { code: 4014 }, 0);
+        else client.emit(Events.ClientReady, client);
+        if (behaviour === "ready-then-refuse") {
+          setImmediate(() => {
+            client.emit(Events.ShardDisconnect, { code: 4014 }, 0);
+            client.emit(Events.ShardError, Object.assign(new Error("Used disallowed intents"), { code: 4014 }), 0);
+          });
+        }
+      });
+      return token;
+    },
+  });
+  return client;
 }
