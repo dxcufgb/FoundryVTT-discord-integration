@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Planning polls** (`/planning-poll campaign:<name>`; the Discord event is three hours long): pick candidate dates, the bot posts a poll tagging the DM and the players, and they vote. **Decide date** offers the dates with the most votes, then a time; the bot creates a Discord scheduled event, announces it in the poll's channel and sets the campaign's next session. **Delete poll** removes it. For administrators, the campaign's DM and the new game master role.
+- Planning polls also set the world's `nextSession` in its `world.json` (the only write the bot makes to Foundry's folders; atomic, one key, layout kept).
+- **Permission check**: at startup and when the bot's role or a channel changes, the bot checks the permissions it needs (View Channels, Send Messages, Send Messages in Threads, Embed Links, Create Events) and announces what is missing once in the status channel. A server where the bot was added without the `applications.commands` scope gets a reinstall notice with the invite link. The invite link and `docs/INSTALL.md` now include Create Events.
+- `/gm-role set|clear|show` (admin): the per-server game master role that may use `/planning-poll` for every campaign.
 - `/updates available changes:true`: one message per Foundry/system/module update, each with the cumulative changelogs of the versions between the installed and the latest one, kept within Discord's message size limit.
 
 ## [1.2.1] - 2026-10-05

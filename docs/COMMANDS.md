@@ -103,6 +103,26 @@ Plan a campaign's next session. `set`, `event` and `clear` are for the **campaig
 
 **15 minutes before** the planned time the bot checks (on its normal poll) whether Foundry is up *and* running the campaign's world. If not, it posts ⏰ *Session in 15 minutes, but the world is not up* to the campaign's `session` channel, tagging the DM and saying what is running instead (Foundry down, setup screen, another world). This is sent **once per planned time**; setting a new time arms it again. If the bot was offline at the 15-minute mark it still warns when it comes back before the session starts; after the start nothing is sent. A session stays visible as "started" for four hours and is then cleared, ready for the next one.
 
+## `/planning-poll campaign:<name>`
+
+Let a campaign vote on the date of its next session. Available to **server administrators, the campaign's DM and members of the game master role** (`/gm-role`); everyone else is refused.
+
+1. You get a menu with the next 25 days (in the bot's `TIMEZONE`); pick the candidate dates.
+2. The bot posts the poll in the same channel, tagging the DM and all players. Each of them votes with a menu (pick every date that works; picking again replaces the previous vote). Only the DM and the players can vote.
+3. Under the poll are two buttons for the poll's creator, the campaign's DM, game masters and administrators:
+   - **Decide date** — offers the dates with the most votes (all of them if tied). Pick one, then a start time (half-hour slots from 10:00 to 22:00, or *Other time…* to type `HH:MM`). The bot then creates a **Discord scheduled event** (an external event named *<campaign> session*, three hours long), announces date, time and event link in the poll's channel tagging everyone, and sets the campaign's **next session** (the same as `/session set`, so the 15-minute world check applies). It also writes the date to the `nextSession` field of the world's `world.json` (needs `FOUNDRY_DATA_PATH`), so it shows in Foundry's setup screen; Foundry may need the world relaunched to pick it up. The poll message is turned into the final result and its controls are removed.
+   - **Delete poll** — deletes the poll message.
+
+The bot needs the *Create Events* permission to create the event. Without it the session is still planned and announced, with a note that the event could not be created. Writing `nextSession` to `world.json` is the only thing the bot ever writes to Foundry's folders; if that fails the reply says so and the rest still happens. Open polls survive a bot restart.
+
+## `/gm-role` — admin
+
+Choose the role whose members may start and manage planning polls for every campaign.
+
+- `/gm-role set role:@role` — set the game master role (one per server).
+- `/gm-role clear` — remove it.
+- `/gm-role show` — show it.
+
 ## `/test-message type:<type>` — admin
 
 Posts a grey test message to the channel the given type resolves to, so you can check routing and permissions.

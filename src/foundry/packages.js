@@ -128,3 +128,42 @@ export function readFoundryVersion(appPath) {
   }
   return null;
 }
+
+/**
+ * Set (or clear, with null) `nextSession` in a world's world.json, so the date
+ * shows in Foundry's setup screen. This is the one place the bot writes to
+ * Foundry's folders: only that one key changes, the file's indentation is kept
+ * and the write is atomic. Foundry reads world.json when it lists or launches
+ * worlds, so a world that is running may need to be relaunched to show it.
+ * @returns {{ok:true}|{ok:false, reason:string}}
+ */
+export function writeWorldNextSession(dataPath, worldId, when) {
+  const folder = resolveDataFolder(dataPath);
+  if (!folder) return { ok: false, reason: "FOUNDRY_DATA_PATH is not set or not a Foundry data folder" };
+  if (!worldId || /[\\/]/.test(worldId) || worldId === "." || worldId === "..") return { ok: false, reason: `"${worldId}" is not a world id` };
+  const file = path.join(folder, "worlds", worldId, "world.json");
+  let raw;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return { ok: false, reason: `${file} could not be read` };
+  }
+  let json;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: "world.json is not valid JSON" };
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) return { ok: false, reason: "world.json is not a JSON object" };
+  json.nextSession = when ? new Date(when).toISOString() : null;
+  const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? 2;
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(json, null, indent) + (raw.endsWith("\n") ? "\n" : ""), "utf8");
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    return { ok: false, reason: `could not write world.json (${err.code ?? err.message})` };
+  }
+  return { ok: true };
+}
