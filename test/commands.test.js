@@ -385,3 +385,28 @@ test("resolveWorld accepts a suggestion label and keeps just the world id", () =
   assert.equal(resolveWorld("DND-Online (dnd-online)", () => []), "dnd-online");
   assert.equal(resolveWorld("dnd-online", worlds), "dnd-online");
 });
+
+test("sessions: /session set also writes the date to the world, a failure is reported, event and clear do not write", async () => {
+  const G = "123456789012345678";
+  const writes = [];
+  const c = ctx({ setWorldNextSession: (world, at) => { writes.push([world, at.toISOString()]); return { ok: true }; } });
+  await runIn(c, { guildId: G, command: "campaign", subcommand: "create", options: { name: "Lost Mines", world: "lost-mines", dm: "dm1" }, admin: true });
+
+  const set = await runIn(c, { guildId: G, command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
+  assert.deepEqual(writes, [["lost-mines", "2026-03-07T18:00:00.000Z"]]);
+  assert.match(set.replies[0].content, /World `lost-mines` has the date as its next session in Foundry/);
+
+  c.setWorldNextSession = () => ({ ok: false, reason: "FOUNDRY_DATA_PATH is not set or not a Foundry data folder" });
+  const failed = await runIn(c, { guildId: G, command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-08 19:00" }, userId: "dm1" });
+  assert.match(failed.replies[0].content, /Could not set it on world `lost-mines` in Foundry \(FOUNDRY_DATA_PATH/);
+  assert.equal(c.state.campaign(G, "lost-mines").nextSession.at, "2026-03-08T18:00:00.000Z", "the session is still planned");
+
+  c.setWorldNextSession = () => { throw new Error("boom"); };
+  const threw = await runIn(c, { guildId: G, command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-09 19:00" }, userId: "dm1" });
+  assert.match(threw.replies[0].content, /\(boom\)/);
+
+  const before = writes.length;
+  c.setWorldNextSession = (...a) => { writes.push(a); return { ok: true }; };
+  await runIn(c, { guildId: G, command: "session", subcommand: "clear", options: { campaign: "lost-mines" }, userId: "dm1" });
+  assert.equal(writes.length, before, "clear does not touch the world");
+});

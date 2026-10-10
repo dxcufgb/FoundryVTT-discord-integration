@@ -99,10 +99,22 @@ export async function execute(interaction, ctx) {
     c.reminderSentFor = null;
   });
   const at = new Date(session.at);
+  // Only /session set also writes the date to the world's world.json (the one write to Foundry's folders).
+  let foundry = "";
+  if (sub === "set") {
+    let world;
+    try {
+      world = ctx.setWorldNextSession ? await ctx.setWorldNextSession(campaign.world, at) : { ok: false, reason: "not available" };
+    } catch (err) {
+      world = { ok: false, reason: err?.message ?? String(err) };
+    }
+    if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
+    foundry = world.ok ? `\nWorld \`${campaign.world}\` has the date as its next session in Foundry.` : `\n⚠️ Could not set it on world \`${campaign.world}\` in Foundry (${world.reason}).`;
+  }
   const from = session.source === "event" ? ` (from the Discord event${session.eventName ? ` **${session.eventName}**` : ""}: ${session.eventUrl})` : "";
   const players = campaign.players.length ? `\nPlayers: ${campaign.players.map(mentionUser).join(" ")}` : "";
   return interaction.reply({
-    content: `📅 Next session of **${campaign.name}**: ${discordTime(at, "F")} (${discordTime(at, "R")})${from}.\nIf world \`${campaign.world}\` is not up 15 minutes before, ${mentionUser(campaign.dm)} will be reminded.${players}`,
+    content: `📅 Next session of **${campaign.name}**: ${discordTime(at, "F")} (${discordTime(at, "R")})${from}.\nIf world \`${campaign.world}\` is not up 15 minutes before, ${mentionUser(campaign.dm)} will be reminded.${foundry}${players}`,
     allowedMentions: { parse: [] },
   });
 }
