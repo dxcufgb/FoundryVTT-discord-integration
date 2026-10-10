@@ -23,6 +23,7 @@ export const data = new SlashCommandBuilder()
 export const adminOnly = false;
 export const autocomplete = campaignAutocomplete;
 
+const NOT_LEADING_MESSAGE = "That date no longer has the most votes. Press **Decide date** again.";
 const ephemeral = (content, extra = {}) => ({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] }, ...extra });
 const gmRoleOf = (ctx, guildId) => ctx.state.guild(guildId).gmRole;
 const NO_PERMISSION = (gmRole) => `${NOT_DM_MESSAGE}${gmRole ? "" : " (Administrators can also set a game master role with `/gm-role set`.)"}`;
@@ -177,7 +178,7 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   if (!poll || !(await requireManager(interaction, ctx, poll, campaign))) return undefined;
   if (!clock) return interaction.reply(ephemeral("That is not a time. Write it as HH:MM, for example 19:30."));
   if (!poll.dates.includes(date)) return interaction.reply(ephemeral("That date is not part of the poll."));
-  if (!topDates(poll).dates.includes(date)) return interaction.reply(ephemeral("That date no longer has the most votes. Press **Decide date** again."));
+  if (!topDates(poll).dates.includes(date)) return interaction.reply(ephemeral(NOT_LEADING_MESSAGE));
   const now = ctx.now ?? (() => new Date());
   const [year, month, day] = date.split("-").map(Number);
   const at = zonedToUtc({ year, month, day, hour: clock.hour, minute: clock.minute }, poll.timezone);
@@ -187,6 +188,10 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   // Acknowledge first: a failed acknowledgement must not leave the poll deleted. Closing the poll is the claim; the loser only follows up.
   if (modal) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   else await interaction.deferUpdate();
+  // Votes may have changed while the acknowledgement was in flight.
+  const current = state.poll(guildId, poll.id);
+  if (!current) return interaction.followUp(ephemeral(NO_POLL_MESSAGE));
+  if (!topDates(current).dates.includes(date)) return interaction.followUp(ephemeral(NOT_LEADING_MESSAGE));
   if (!state.deletePoll(guildId, poll.id)) return interaction.followUp(ephemeral(NO_POLL_MESSAGE));
   const reply = (content) => (modal ? interaction.editReply({ content, allowedMentions: { parse: [] } }) : interaction.editReply({ content, components: [], allowedMentions: { parse: [] } }));
 

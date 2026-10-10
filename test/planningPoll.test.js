@@ -287,3 +287,15 @@ test("a failing acknowledgement leaves the poll open", async () => {
   assert.ok(env.state.poll("g1", "m1"));
   assert.equal(env.created.length, 0);
 });
+
+test("a vote that lands during the acknowledgement can still stop a date from being finalized", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-05", "2026-03-06"]);
+  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
+  time.deferUpdate = async () => { env.state.updatePoll("g1", "m1", (p) => { p.votes = { p2: ["2026-03-05"], dm1: ["2026-03-05"] }; }); };
+  await handleInteraction(time, env.ctx, { log: quietLog });
+  assert.match(last(time).content, /no longer has the most votes/);
+  assert.ok(env.state.poll("g1", "m1"));
+  assert.equal(env.created.length, 0);
+});
