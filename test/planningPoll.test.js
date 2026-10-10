@@ -54,9 +54,14 @@ async function startPoll(env, dates = ["2026-03-05", "2026-03-06"]) {
   return i;
 }
 
+/** Tap the date buttons for one user. */
+async function voteFor(env, userId, dates) {
+  for (const d of dates) await handleInteraction(component(env, { customId: `poll:toggle:${d}`, userId }), env.ctx, { log: quietLog });
+}
+
 const last = (i) => i.replies.at(-1);
 
-test("/planning-poll offers the next 25 days to the DM, admins and the game master role, and refuses others", async () => {
+test("/planning-poll offers the next 20 days to the DM, admins and the game master role, and refuses others", async () => {
   const env = setup({ gmRole: "role-gm" });
   const run = async (opts) => {
     const i = fakeInteraction({ command: "planning-poll", options: { campaign: "lost-mines" }, ...opts });
@@ -67,7 +72,7 @@ test("/planning-poll offers the next 25 days to the DM, admins and the game mast
   for (const opts of [{ userId: "dm1" }, { userId: "x", admin: true }, { userId: "x", roles: ["role-gm"] }]) {
     const reply = await run(opts);
     const menu = reply.components[0].toJSON().components[0];
-    assert.equal(menu.options.length, 25);
+    assert.equal(menu.options.length, 20);
     assert.equal(menu.options[0].value, "2026-03-01");
     assert.equal(menu.custom_id, "poll:create:lost-mines");
   }
@@ -84,23 +89,63 @@ test("choosing dates posts a poll that tags the DM and the players", async () =>
   assert.match(env.sent[0].content, /<@dm1> <@p1> <@p2>/);
   assert.deepEqual(env.sent[0].allowedMentions.users, ["dm1", "p1", "p2"]);
   const buttons = env.sent[0].components[1].toJSON().components;
-  assert.deepEqual(buttons.map((b) => b.label), ["Decide date", "Delete poll"]);
+  assert.deepEqual(buttons.map((b) => b.label), ["Toggle all dates", "Decide date", "Delete poll"]);
   assert.deepEqual(env.state.poll("g1", "m1").dates, ["2026-03-05", "2026-03-06"]);
   assert.match(last(i).content, /Poll posted/);
 });
 
-test("only campaign members vote, and votes replace each other", async () => {
+test("each date is a button that toggles the user's vote and shows the count", async () => {
   const env = setup();
   await startPoll(env);
-  const stranger = component(env, { customId: "poll:vote", userId: "zz", values: ["2026-03-05"] });
+  const dateRow = env.sent[0].components[0].toJSON().components;
+  assert.deepEqual(dateRow.map((b) => [b.label, b.custom_id]), [["Thu 5 Mar (0)", "poll:toggle:2026-03-05"], ["Fri 6 Mar (0)", "poll:toggle:2026-03-06"]]);
+
+  const stranger = component(env, { customId: "poll:toggle:2026-03-05", userId: "zz" });
   await handleInteraction(stranger, env.ctx, { log: quietLog });
   assert.match(last(stranger).content, /Only the DM and the players/);
 
-  for (const [userId, values] of [["p1", ["2026-03-05", "2026-03-06"]], ["p2", ["2026-03-06"]], ["p1", ["2026-03-06"]]]) {
-    await handleInteraction(component(env, { customId: "poll:vote", userId, values }), env.ctx, { log: quietLog });
-  }
+  const tap = component(env, { customId: "poll:toggle:2026-03-05", userId: "p1" });
+  await handleInteraction(tap, env.ctx, { log: quietLog });
+  assert.deepEqual(env.state.poll("g1", "m1").votes, { p1: ["2026-03-05"] });
+  assert.equal(last(tap).components[0].toJSON().components[0].label, "Thu 5 Mar (1)", "the buttons are refreshed with the new count");
+
+  await voteFor(env, "p1", ["2026-03-06"]);
+  await voteFor(env, "p2", ["2026-03-06"]);
+  assert.deepEqual(env.state.poll("g1", "m1").votes, { p1: ["2026-03-05", "2026-03-06"], p2: ["2026-03-06"] });
+  await voteFor(env, "p1", ["2026-03-05"]); // tapping again takes the vote back
   assert.deepEqual(env.state.poll("g1", "m1").votes, { p1: ["2026-03-06"], p2: ["2026-03-06"] });
   assert.deepEqual(topDates(env.state.poll("g1", "m1")), { votes: 2, dates: ["2026-03-06"] });
+});
+
+test("Toggle all dates votes for every date, then withdraws them all", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-05", "2026-03-06", "2026-03-07"]);
+  const all = () => handleInteraction(component(env, { customId: "poll:all", userId: "p1" }), env.ctx, { log: quietLog });
+  await all();
+  assert.deepEqual(env.state.poll("g1", "m1").votes, { p1: ["2026-03-05", "2026-03-06", "2026-03-07"] });
+  await all();
+  assert.deepEqual(env.state.poll("g1", "m1").votes, {});
+  await voteFor(env, "p1", ["2026-03-05"]); // some but not all: it selects the rest
+  await all();
+  assert.deepEqual(env.state.poll("g1", "m1").votes.p1, ["2026-03-05", "2026-03-06", "2026-03-07"]);
+  const stranger = component(env, { customId: "poll:all", userId: "zz" });
+  await handleInteraction(stranger, env.ctx, { log: quietLog });
+  assert.match(last(stranger).content, /Only the DM and the players/);
+});
+
+test("a full poll fits the button layout, and polls posted with the old menu keep working", async () => {
+  const env = setup();
+  const dates = upcomingDates(NOW, "Europe/Stockholm", 20);
+  await startPoll(env, dates);
+  const rows = env.sent[0].components.map((r) => r.toJSON().components);
+  assert.equal(rows.length, 5);
+  assert.deepEqual(rows.map((r) => r.length), [5, 5, 5, 5, 3]);
+  assert.equal(upcomingDates(NOW, "Europe/Stockholm").length, 20, "the date picker offers 20 days");
+
+  const legacy = component(env, { customId: "poll:vote", userId: "p1", values: [dates[0], dates[3]] });
+  await handleInteraction(legacy, env.ctx, { log: quietLog });
+  assert.deepEqual(env.state.poll("g1", "m1").votes, { p1: [dates[0], dates[3]] });
+  assert.equal(last(legacy).components, undefined, "old polls only refresh the embed");
 });
 
 test("delete poll: creator and DM may, other members may not", async () => {
@@ -129,7 +174,7 @@ test("decide: needs votes, offers only the dates with the most votes, then a tim
   assert.match(last(none).content, /Nobody has voted/);
 
   for (const [userId, values] of [["p1", ["2026-03-05", "2026-03-06"]], ["p2", ["2026-03-06", "2026-03-07"]], ["dm1", ["2026-03-06", "2026-03-05"]]]) {
-    await handleInteraction(component(env, { customId: "poll:vote", userId, values }), env.ctx, { log: quietLog });
+    await voteFor(env, userId, values);
   }
   const denied = component(env, { customId: "poll:decide", userId: "p2" });
   await handleInteraction(denied, env.ctx, { log: quietLog });
@@ -143,7 +188,7 @@ test("decide: needs votes, offers only the dates with the most votes, then a tim
   await handleInteraction(date, env.ctx, { log: quietLog });
   const menu = last(date).components[0].toJSON().components[0];
   assert.equal(menu.custom_id, "poll:time:m1:2026-03-06");
-  assert.equal(menu.options.length, 25);
+  assert.equal(menu.options.length, 20);
 
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
   await handleInteraction(time, env.ctx, { log: quietLog });
@@ -168,7 +213,7 @@ test("decide: needs votes, offers only the dates with the most votes, then a tim
 test("deciding with a typed time; an invalid or past time is refused and keeps the poll", async () => {
   const env = setup();
   await startPoll(env, ["2026-03-01", "2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-01", "2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-01", "2026-03-06"]);
 
   const button = component(env, { customId: "poll:custom:m1:2026-03-06", messageId: "eph" });
   await handleInteraction(button, env.ctx, { log: quietLog });
@@ -193,7 +238,7 @@ test("if the event cannot be created the session is still set and announced", as
   const env = setup();
   env.guild.scheduledEvents.create = async () => { throw new Error("Missing Permissions"); };
   await startPoll(env, ["2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   await handleInteraction(component(env, { customId: "poll:time:m1:2026-03-06", values: ["20:00"], messageId: "eph" }), env.ctx, { log: quietLog });
   const campaign = env.state.campaign("g1", "lost-mines");
   assert.equal(campaign.nextSession.source, "poll");
@@ -229,7 +274,7 @@ test("a throwing world writer does not stop the announcement", async () => {
   const env = setup();
   env.ctx.setWorldNextSession = () => { throw new Error("boom"); };
   await startPoll(env, ["2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["20:00"], messageId: "eph" });
   await handleInteraction(time, env.ctx, { log: quietLog });
   assert.equal(env.sent.length, 2);
@@ -240,7 +285,7 @@ test("a failing announcement still closes the poll and is reported", async () =>
   const env = setup();
   await startPoll(env, ["2026-03-06"]);
   env.channel.send = async () => { throw new Error("Missing Access"); };
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["20:00"], messageId: "eph" });
   await handleInteraction(time, env.ctx, { log: quietLog });
   assert.equal(env.state.campaign("g1", "lost-mines").nextSession.at, "2026-03-06T19:00:00.000Z");
@@ -251,7 +296,7 @@ test("a failing announcement still closes the poll and is reported", async () =>
 test("only a date with the most votes can be finalized, and an unavailable channel is reported", async () => {
   const env = setup();
   await startPoll(env, ["2026-03-05", "2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   const losing = component(env, { customId: "poll:time:m1:2026-03-05", values: ["19:00"], messageId: "eph" });
   await handleInteraction(losing, env.ctx, { log: quietLog });
   assert.match(last(losing).content, /no longer has the most votes/);
@@ -267,7 +312,7 @@ test("only a date with the most votes can be finalized, and an unavailable chann
 test("a poll that another interaction already claimed is not finalized twice", async () => {
   const env = setup();
   await startPoll(env, ["2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   const realDelete = env.state.deletePoll.bind(env.state);
   env.state.deletePoll = () => { realDelete("g1", "m1"); return false; }; // someone else got there first
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
@@ -280,7 +325,7 @@ test("a poll that another interaction already claimed is not finalized twice", a
 test("a failing acknowledgement leaves the poll open", async () => {
   const env = setup();
   await startPoll(env, ["2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
   time.deferUpdate = async () => { throw new Error("Unknown interaction"); };
   await handleInteraction(time, env.ctx, { log: quietLog });
@@ -291,7 +336,7 @@ test("a failing acknowledgement leaves the poll open", async () => {
 test("a vote that lands during the acknowledgement can still stop a date from being finalized", async () => {
   const env = setup();
   await startPoll(env, ["2026-03-05", "2026-03-06"]);
-  await handleInteraction(component(env, { customId: "poll:vote", userId: "p1", values: ["2026-03-06"] }), env.ctx, { log: quietLog });
+  await voteFor(env, "p1", ["2026-03-06"]);
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
   time.deferUpdate = async () => { env.state.updatePoll("g1", "m1", (p) => { p.votes = { p2: ["2026-03-05"], dm1: ["2026-03-05"] }; }); };
   await handleInteraction(time, env.ctx, { log: quietLog });

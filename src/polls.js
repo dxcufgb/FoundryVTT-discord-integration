@@ -2,12 +2,12 @@
 // and its components). Storage lives in state.js, the interactions in
 // discord/commands/planningPoll.js.
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits, StringSelectMenuBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits } from "discord.js";
 import { localParts } from "./restartWindow.js";
 import { mentionUser } from "./campaigns.js";
 
-/** Discord allows at most 25 options in a select menu. */
-export const MAX_POLL_DATES = 25;
+/** A message holds 5 rows of 5 buttons: 4 rows of dates and a row for Toggle all / Decide date / Delete poll. */
+export const MAX_POLL_DATES = 20;
 export const SESSION_DURATION_MS = 3 * 3600_000;
 export const NOT_POLL_MANAGER_MESSAGE = "Only the person who created the poll, the campaign's DM, a game master or a server administrator can do that.";
 export const NOT_POLL_VOTER_MESSAGE = "Only the DM and the players of this campaign can vote.";
@@ -60,6 +60,19 @@ export function setVotes(poll, userId, dates) {
   else delete poll.votes[userId];
 }
 
+/** Add or withdraw one user's vote for one date. */
+export function toggleVote(poll, userId, date) {
+  if (!poll.dates.includes(date)) return;
+  const current = poll.votes[userId] ?? [];
+  setVotes(poll, userId, current.includes(date) ? current.filter((d) => d !== date) : [...current, date]);
+}
+
+/** Vote for every date, or withdraw all votes when the user already has them all. */
+export function toggleAll(poll, userId) {
+  const all = (poll.votes[userId] ?? []).length === poll.dates.length;
+  setVotes(poll, userId, all ? [] : poll.dates);
+}
+
 /** Votes per date, in date order. */
 export function tally(poll) {
   return poll.dates.map((date) => ({ date, voters: Object.keys(poll.votes).filter((u) => poll.votes[u].includes(date)) }));
@@ -105,7 +118,7 @@ export function buildPollEmbed(poll, campaign) {
   return new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle(`📅 When can we play ${poll.campaignName}?`)
-    .setDescription(`Pick every date that works for you in the menu below.\n\n${lines.join("\n")}${waiting.length ? `\n\nNot voted yet: ${waiting.map(mentionUser).join(" ")}` : ""}`)
+    .setDescription(`Tap every date that works for you; tap again to take a vote back, or use **Toggle all dates**.\n\n${lines.join("\n")}${waiting.length ? `\n\nNot voted yet: ${waiting.map(mentionUser).join(" ")}` : ""}`)
     .setFooter({ text: `Times are in ${poll.timezone}` });
 }
 
@@ -117,15 +130,18 @@ export function buildDecidedEmbed(poll, at, eventUrl = null) {
 }
 
 export function pollComponents(poll) {
-  const vote = new StringSelectMenuBuilder()
-    .setCustomId("poll:vote")
-    .setPlaceholder("Pick every date that works for you")
-    .setMinValues(0)
-    .setMaxValues(poll.dates.length)
-    .addOptions(poll.dates.map((d) => ({ label: dateLabel(d), value: d })));
-  const buttons = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("poll:decide").setLabel("Decide date").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("poll:delete").setLabel("Delete poll").setStyle(ButtonStyle.Danger),
+  const counts = tally(poll);
+  const dateButtons = counts.map(({ date, voters }) =>
+    new ButtonBuilder().setCustomId(`poll:toggle:${date}`).setLabel(`${dateLabel(date)} (${voters.length})`).setStyle(ButtonStyle.Secondary),
   );
-  return [new ActionRowBuilder().addComponents(vote), buttons];
+  const rows = [];
+  for (let i = 0; i < dateButtons.length; i += 5) rows.push(new ActionRowBuilder().addComponents(dateButtons.slice(i, i + 5)));
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("poll:all").setLabel("Toggle all dates").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("poll:decide").setLabel("Decide date").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("poll:delete").setLabel("Delete poll").setStyle(ButtonStyle.Danger),
+    ),
+  );
+  return rows;
 }

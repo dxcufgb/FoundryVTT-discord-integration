@@ -8,7 +8,7 @@
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel, InteractionContextType, MessageFlags, ModalBuilder, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { createSession, eventUrl as discordEventUrl, mentionUser, NOT_DM_MESSAGE, zonedToUtc } from "../../campaigns.js";
-import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canManagePoll, canRunPoll, createPoll, dateLabel, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, SESSION_DURATION_MS, setVotes, timeSlots, topDates, upcomingDates } from "../../polls.js";
+import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canManagePoll, canRunPoll, createPoll, dateLabel, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, SESSION_DURATION_MS, setVotes, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../../polls.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
 import { autocomplete as campaignAutocomplete, findCampaign, NO_SUCH_CAMPAIGN } from "./campaign.js";
 
@@ -58,7 +58,9 @@ export async function handlePollComponent(interaction, ctx) {
   const [, action, ...rest] = String(interaction.customId).split(":");
   switch (action) {
     case "create": return createFromSelection(interaction, ctx, rest[0]);
-    case "vote": return vote(interaction, ctx);
+    case "toggle": return vote(interaction, ctx, (p) => toggleVote(p, interaction.user.id, rest[0]));
+    case "all": return vote(interaction, ctx, (p) => toggleAll(p, interaction.user.id));
+    case "vote": return vote(interaction, ctx, (p) => setVotes(p, interaction.user.id, interaction.values), { legacy: true }); // menu of polls posted before the buttons
     case "decide": return decide(interaction, ctx);
     case "delete": return deletePoll(interaction, ctx);
     case "date": return pickTime(interaction, ctx, rest[0]);
@@ -111,12 +113,13 @@ async function createFromSelection(interaction, ctx, campaignId) {
 
 // --- voting --------------------------------------------------------------------------
 
-async function vote(interaction, ctx) {
+async function vote(interaction, ctx, change, { legacy = false } = {}) {
   const { poll, campaign } = await loadPoll(interaction, ctx);
   if (!poll) return undefined;
   if (!campaign || !campaignMembers(campaign).includes(interaction.user.id)) return interaction.reply(ephemeral(NOT_POLL_VOTER_MESSAGE));
-  const updated = ctx.state.updatePoll(interaction.guildId, poll.id, (p) => setVotes(p, interaction.user.id, interaction.values));
-  return interaction.update({ embeds: [buildPollEmbed(updated, campaign)] });
+  const updated = ctx.state.updatePoll(interaction.guildId, poll.id, change);
+  // Old polls keep their menu (they may have more dates than a button layout holds); new ones refresh the counts on the buttons.
+  return interaction.update(legacy ? { embeds: [buildPollEmbed(updated, campaign)] } : { embeds: [buildPollEmbed(updated, campaign)], components: pollComponents(updated) });
 }
 
 // --- deleting ------------------------------------------------------------------------
