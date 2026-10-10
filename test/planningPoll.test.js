@@ -188,7 +188,7 @@ test("decide: needs votes, offers only the dates with the most votes, then a tim
   await handleInteraction(date, env.ctx, { log: quietLog });
   const menu = last(date).components[0].toJSON().components[0];
   assert.equal(menu.custom_id, "poll:time:m1:2026-03-06");
-  assert.equal(menu.options.length, 20);
+  assert.equal(menu.options.length, 25);
 
   const time = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
   await handleInteraction(time, env.ctx, { log: quietLog });
