@@ -1,15 +1,18 @@
 // /campaign: bind Discord users to campaigns. Each campaign is one Foundry
 // world with exactly one DM and any number of players; a user can be in any
 // number of campaigns. Creating, deleting and editing campaigns is for
-// administrators; the DM (or an administrator) manages the players; anyone can
+// administrators; the DM (or an administrator) manages the players; the DM, a
+// game master or an administrator sets the default voice channel; anyone can
 // join, leave, list and show.
 
 import { ChannelType, InteractionContextType, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { canManageCampaign, createCampaign, describeCampaign, isCurrentSession, MAX_CAMPAIGN_NAME, mentionUser, normaliseWorldId, NOT_DM_MESSAGE, slugify, uniqueUsers } from "../../campaigns.js";
 import { discordTime } from "../../messages.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
+import { canSetVoiceChannel, NOT_VOICE_MANAGER_MESSAGE, VOICE_CHANNEL_TYPES } from "../sessionEvents.js";
 
 const campaignOption = (o, description = "Campaign (start typing for suggestions)") => o.setName("campaign").setDescription(description).setRequired(true).setAutocomplete(true);
+const voiceOption = (o, description) => o.setName("voice-channel").setDescription(description).addChannelTypes(...VOICE_CHANNEL_TYPES);
 const worldOption = (o, required) => o.setName("world").setDescription("Foundry world id, the folder name under Data/worlds (start typing for suggestions)").setRequired(required).setAutocomplete(true);
 
 export const data = new SlashCommandBuilder()
@@ -25,13 +28,14 @@ export const data = new SlashCommandBuilder()
       .addUserOption((o) => o.setName("dm").setDescription("The campaign's DM").setRequired(true))
       .addChannelOption((o) =>
         o.setName("channel").setDescription("Channel for this campaign's session messages (default: the server's session channel)").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.PublicThread, ChannelType.PrivateThread),
-      ),
+      )
+      .addChannelOption((o) => voiceOption(o, "Voice channel for this campaign's Discord events (default: ask when planning)")),
   )
   .addSubcommand((sub) => sub.setName("delete").setDescription("Delete a campaign (administrators only)").addStringOption((o) => campaignOption(o)))
   .addSubcommand((sub) =>
     sub
       .setName("edit")
-      .setDescription("Change a campaign's name, world, DM or channel (administrators only)")
+      .setDescription("Change a campaign's name, world, DM or channels (administrators only)")
       .addStringOption((o) => campaignOption(o))
       .addStringOption((o) => o.setName("name").setDescription("New name").setMaxLength(MAX_CAMPAIGN_NAME))
       .addStringOption((o) => worldOption(o, false))
@@ -39,7 +43,17 @@ export const data = new SlashCommandBuilder()
       .addChannelOption((o) =>
         o.setName("channel").setDescription("Channel for this campaign's session messages").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.PublicThread, ChannelType.PrivateThread),
       )
-      .addBooleanOption((o) => o.setName("clear-channel").setDescription("Go back to the server's session channel")),
+      .addBooleanOption((o) => o.setName("clear-channel").setDescription("Go back to the server's session channel"))
+      .addChannelOption((o) => voiceOption(o, "Voice channel for this campaign's Discord events"))
+      .addBooleanOption((o) => o.setName("clear-voice-channel").setDescription("No default voice channel: ask when a session is planned")),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("voice-channel")
+      .setDescription("Show or set the voice channel for a campaign's Discord events (DM, game masters or admins)")
+      .addStringOption((o) => campaignOption(o))
+      .addChannelOption((o) => o.setName("channel").setDescription("The voice channel (leave out to see the current one)").addChannelTypes(...VOICE_CHANNEL_TYPES))
+      .addBooleanOption((o) => o.setName("clear").setDescription("Remove the default: ask each time a session is planned")),
   )
   .addSubcommand((sub) =>
     sub.setName("add-player").setDescription("Add a player to a campaign (DM or administrators)").addStringOption((o) => campaignOption(o)).addUserOption((o) => o.setName("user").setDescription("Player to add").setRequired(true)),
@@ -122,7 +136,7 @@ export async function execute(interaction, ctx) {
     let campaign;
     try {
       const world = resolveWorld(interaction.options.getString("world", true), ctx.listWorlds);
-      campaign = createCampaign({ name, world, dm: dm.id, channel: interaction.options.getChannel("channel")?.id ?? null, createdBy: me }, { now });
+      campaign = createCampaign({ name, world, dm: dm.id, channel: interaction.options.getChannel("channel")?.id ?? null, voiceChannel: interaction.options.getChannel("voice-channel")?.id ?? null, createdBy: me }, { now });
     } catch (err) {
       return interaction.reply(ephemeral(`Could not create the campaign: ${err.message}`));
     }
@@ -147,7 +161,9 @@ export async function execute(interaction, ctx) {
     const dm = interaction.options.getUser("dm");
     const channel = interaction.options.getChannel("channel");
     const clearChannel = interaction.options.getBoolean("clear-channel") ?? false;
-    if (name === null && worldText === null && !dm && !channel && !clearChannel) return interaction.reply(ephemeral("Nothing to change: give a new name, world, dm or channel."));
+    const voice = interaction.options.getChannel("voice-channel");
+    const clearVoice = interaction.options.getBoolean("clear-voice-channel") ?? false;
+    if (name === null && worldText === null && !dm && !channel && !clearChannel && !voice && !clearVoice) return interaction.reply(ephemeral("Nothing to change: give a new name, world, dm, channel or voice-channel."));
     if (dm?.bot) return interaction.reply(ephemeral("A bot cannot be the DM."));
     let world = campaign.world;
     let newId = campaign.id;
@@ -171,6 +187,8 @@ export async function execute(interaction, ctx) {
     }
     if (clearChannel) updated.channel = null;
     else if (channel) updated.channel = channel.id;
+    if (clearVoice) updated.voiceChannel = null;
+    else if (voice) updated.voiceChannel = voice.id;
     if (newId !== campaign.id) state.deleteCampaign(guildId, campaign.id);
     state.saveCampaign(guildId, updated);
     return interaction.reply(ephemeral(`Campaign updated.\n${describeCampaign(updated, { worldTitle, now: now() })}`));
@@ -189,6 +207,17 @@ export async function execute(interaction, ctx) {
     if (!campaign.players.includes(user.id)) return interaction.reply(ephemeral(`${mentionUser(user.id)} is not a player in **${campaign.name}**.`));
     state.updateCampaign(guildId, campaign.id, (c) => (c.players = c.players.filter((id) => id !== user.id)));
     return interaction.reply({ content: `${mentionUser(user.id)} was removed from **${campaign.name}**.`, allowedMentions: { parse: [] } });
+  }
+
+  if (sub === "voice-channel") {
+    const voice = interaction.options.getChannel("channel");
+    const clear = interaction.options.getBoolean("clear") ?? false;
+    if (!voice && !clear) {
+      return interaction.reply(ephemeral(campaign.voiceChannel ? `The Discord events of **${campaign.name}** are held in <#${campaign.voiceChannel}>.` : `**${campaign.name}** has no default voice channel; you are asked for one when a session is planned.`));
+    }
+    if (!canSetVoiceChannel(interaction, campaign, ctx)) return interaction.reply(ephemeral(NOT_VOICE_MANAGER_MESSAGE));
+    state.updateCampaign(guildId, campaign.id, (c) => (c.voiceChannel = clear ? null : voice.id));
+    return interaction.reply(ephemeral(clear ? `**${campaign.name}** no longer has a default voice channel; you are asked for one when a session is planned.` : `🔊 <#${voice.id}> is now the default voice channel of **${campaign.name}**'s Discord events.`));
   }
 
   if (sub === "join") {

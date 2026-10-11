@@ -8,9 +8,10 @@ import { fakeInteraction, quietLog, tmpState } from "./helpers.js";
 
 const NOW = new Date("2026-03-01T12:00:00Z");
 
-function setup({ gmRole = null } = {}) {
+// With a default voice channel picking a time decides at once; voiceChannel: null asks for one first.
+function setup({ gmRole = null, voiceChannel = "vc1" } = {}) {
   const state = tmpState();
-  state.saveCampaign("g1", createCampaign({ name: "Lost Mines", world: "lost-mines", dm: "dm1", players: ["p1", "p2"] }, { now: () => NOW }));
+  state.saveCampaign("g1", createCampaign({ name: "Lost Mines", world: "lost-mines", dm: "dm1", players: ["p1", "p2"], voiceChannel }, { now: () => NOW }));
   if (gmRole) state.setGmRole("g1", gmRole);
   const sent = [];
   const created = [];
@@ -200,6 +201,7 @@ test("decide: needs votes, offers only the dates with the most votes, then a tim
   assert.equal(env.created.length, 1);
   assert.equal(env.created[0].scheduledStartTime.toISOString(), "2026-03-06T18:00:00.000Z");
   assert.equal(env.created[0].scheduledEndTime.toISOString(), "2026-03-06T21:00:00.000Z");
+  assert.equal(env.created[0].channel, "vc1", "held in the campaign's default voice channel, without asking");
   assert.deepEqual(env.worldWrites, [["lost-mines", "2026-03-06T18:00:00.000Z"]]);
   const campaign = env.state.campaign("g1", "lost-mines");
   assert.equal(campaign.nextSession.at, "2026-03-06T18:00:00.000Z");

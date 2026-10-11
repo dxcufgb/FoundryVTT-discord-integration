@@ -13,7 +13,8 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 
 - `src/index.js` — wiring and startup.
 - `src/discord/commands/*.js` — one file per slash command; all registered in `src/discord/commands/index.js`.
-- `src/discord/client.js` — interaction routing, admin check, autocomplete.
+- `src/discord/client.js` — interaction routing (component customIds by prefix: `poll:`, `session:`, `vc:`), admin check, autocomplete.
+- `src/discord/sessionEvents.js` — the Discord event of a planned session: campaign's default voice channel, the "pick a voice channel or skip" prompt and the "make it the default?" buttons.
 - `src/foundry/*` — talking to Foundry: status polling, monitor loop, packages, updates, releases, worlds, LevelDB reader.
 - `src/state.js` — persistent JSON state (atomic writes); `MESSAGE_TYPES` lives here.
 - `src/messages.js`, `src/notifier.js` — embeds and posting.

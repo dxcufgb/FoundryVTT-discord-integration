@@ -1,15 +1,17 @@
 // /planning-poll: let a campaign vote on when to play. The starter picks the
 // candidate dates, the bot posts a poll tagging the DM and the players, and the
 // starter (or any DM/game master/administrator) decides: pick one of the dates
-// with the most votes, then a time. That creates a Discord scheduled event,
+// with the most votes, then a time, then (when the campaign has no default
+// voice channel) a voice channel or none. That creates a Discord scheduled event,
 // announces it in the poll's channel and sets the campaign's next session (see
 // sessions.js for the 15-minute check). Poll state lives in state.js so it
 // survives restarts; the component handlers are routed from client.js.
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel, InteractionContextType, MessageFlags, ModalBuilder, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
-import { createSession, eventUrl as discordEventUrl, mentionUser, NOT_DM_MESSAGE, zonedToUtc } from "../../campaigns.js";
-import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canManagePoll, canRunPoll, createPoll, dateLabel, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, SESSION_DURATION_MS, setVotes, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../../polls.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionContextType, MessageFlags, ModalBuilder, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
+import { createSession, mentionUser, NOT_DM_MESSAGE, zonedToUtc } from "../../campaigns.js";
+import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canManagePoll, canRunPoll, createPoll, dateLabel, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, setVotes, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../../polls.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
+import { defaultVoiceQuestion, scheduleSessionEvent, voicePrompt } from "../sessionEvents.js";
 import { autocomplete as campaignAutocomplete, findCampaign, NO_SUCH_CAMPAIGN } from "./campaign.js";
 
 export const data = new SlashCommandBuilder()
@@ -64,9 +66,11 @@ export async function handlePollComponent(interaction, ctx) {
     case "decide": return decide(interaction, ctx);
     case "delete": return deletePoll(interaction, ctx);
     case "date": return pickTime(interaction, ctx, rest[0]);
-    case "time": return finalize(interaction, ctx, rest[0], rest[1], parseClock(interaction.values[0]));
+    case "time": return chooseLocation(interaction, ctx, rest[0], rest[1], parseClock(interaction.values[0]));
     case "custom": return askCustomTime(interaction, ctx, rest[0], rest[1]);
-    case "modal": return finalize(interaction, ctx, rest[0], rest[1], parseClock(interaction.fields.getTextInputValue("time")), { modal: true });
+    case "modal": return chooseLocation(interaction, ctx, rest[0], rest[1], parseClock(interaction.fields.getTextInputValue("time")), { modal: true });
+    case "voice": return finalize(interaction, ctx, rest[0], rest[1], parseClock(rest[2]), { voiceChannel: interaction.values[0], picked: true });
+    case "novoice": return finalize(interaction, ctx, rest[0], rest[1], parseClock(rest[2]), { voiceChannel: null });
     default: return undefined;
   }
 }
@@ -173,19 +177,39 @@ async function askCustomTime(interaction, ctx, pollId, date) {
   return interaction.showModal(new ModalBuilder().setCustomId(`poll:modal:${poll.id}:${date}`).setTitle("Session start time").addComponents(new ActionRowBuilder().addComponents(input)));
 }
 
-/** Time chosen: create the event, announce it, set the campaign's next session, close the poll. */
-async function finalize(interaction, ctx, pollId, date, clock, { modal = false } = {}) {
-  const { state } = ctx;
-  const guildId = interaction.guildId;
+/** Check a chosen date and time; replies and returns {} when it cannot be used. */
+async function checkChoice(interaction, ctx, pollId, date, clock) {
   const { poll, campaign } = await loadPoll(interaction, ctx, pollId);
-  if (!poll || !(await requireManager(interaction, ctx, poll, campaign))) return undefined;
-  if (!clock) return interaction.reply(ephemeral("That is not a time. Write it as HH:MM, for example 19:30."));
-  if (!poll.dates.includes(date)) return interaction.reply(ephemeral("That date is not part of the poll."));
-  if (!topDates(poll).dates.includes(date)) return interaction.reply(ephemeral(NOT_LEADING_MESSAGE));
-  const now = ctx.now ?? (() => new Date());
+  if (!poll || !(await requireManager(interaction, ctx, poll, campaign))) return {};
+  const refuse = async (content) => (await interaction.reply(ephemeral(content)), {});
+  if (!clock) return refuse("That is not a time. Write it as HH:MM, for example 19:30.");
+  if (!poll.dates.includes(date)) return refuse("That date is not part of the poll.");
+  if (!topDates(poll).dates.includes(date)) return refuse(NOT_LEADING_MESSAGE);
   const [year, month, day] = date.split("-").map(Number);
   const at = zonedToUtc({ year, month, day, hour: clock.hour, minute: clock.minute }, poll.timezone);
-  if (at.getTime() <= now().getTime()) return interaction.reply(ephemeral(`That moment (<t:${Math.floor(at.getTime() / 1000)}:F>) is in the past. Pick a later time.`));
+  if (at.getTime() <= (ctx.now ?? (() => new Date()))().getTime()) return refuse(`That moment (<t:${Math.floor(at.getTime() / 1000)}:F>) is in the past. Pick a later time.`);
+  return { poll, campaign, at };
+}
+
+/** Time chosen: use the campaign's default voice channel, or ask for one (or none). */
+async function chooseLocation(interaction, ctx, pollId, date, clock, { modal = false } = {}) {
+  const poll = ctx.state.poll(interaction.guildId, pollId);
+  const voiceChannel = poll ? ctx.state.campaign(interaction.guildId, poll.campaignId)?.voiceChannel : null;
+  if (voiceChannel) return finalize(interaction, ctx, pollId, date, clock, { modal, voiceChannel });
+  const { campaign } = await checkChoice(interaction, ctx, pollId, date, clock);
+  if (!campaign) return undefined;
+  const hhmm = `${String(clock.hour).padStart(2, "0")}${String(clock.minute).padStart(2, "0")}`;
+  const prompt = voicePrompt("poll", `${pollId}:${date}:${hhmm}`, campaign);
+  return modal ? interaction.reply(ephemeral(prompt.content, { components: prompt.components })) : interaction.update(prompt);
+}
+
+/** Time and place chosen: create the event, announce it, set the campaign's next session, close the poll. */
+async function finalize(interaction, ctx, pollId, date, clock, { modal = false, voiceChannel = null, picked = false } = {}) {
+  const { state } = ctx;
+  const guildId = interaction.guildId;
+  const { poll, campaign, at } = await checkChoice(interaction, ctx, pollId, date, clock);
+  if (!poll) return undefined;
+  const now = ctx.now ?? (() => new Date());
 
   // From here the poll is settled: closing it first keeps a second click from deciding it twice.
   // Acknowledge first: a failed acknowledgement must not leave the poll deleted. Closing the poll is the claim; the loser only follows up.
@@ -196,20 +220,11 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   if (!current) return interaction.followUp(ephemeral(NO_POLL_MESSAGE));
   if (!topDates(current).dates.includes(date)) return interaction.followUp(ephemeral(NOT_LEADING_MESSAGE));
   if (!state.deletePoll(guildId, poll.id)) return interaction.followUp(ephemeral(NO_POLL_MESSAGE));
-  const reply = (content) => (modal ? interaction.editReply({ content, allowedMentions: { parse: [] } }) : interaction.editReply({ content, components: [], allowedMentions: { parse: [] } }));
+  const reply = (content, components = []) => (modal ? interaction.editReply({ content, allowedMentions: { parse: [] } }) : interaction.editReply({ content, components, allowedMentions: { parse: [] } }));
 
-  let event = null;
-  let eventError = null;
-  try {
-    event = await createEvent(interaction, ctx, campaign, at);
-  } catch (err) {
-    eventError = err?.message ?? String(err);
-    ctx.log?.warn?.("Could not create the Discord event:", eventError);
-  }
-  const url = event?.id ? discordEventUrl(guildId, event.id) : null;
-
+  const { event, url, error: eventError } = await scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, "Planned with a poll.");
   const session = createSession({ at, source: event ? "event" : "poll", eventId: event?.id ?? null, eventUrl: url, setBy: interaction.user.id }, { now });
-  if (event) session.eventName = event.name ?? null;
+  if (event) Object.assign(session, { eventName: event.name ?? null, eventCreated: true });
   state.updateCampaign(guildId, campaign.id, (c) => {
     c.nextSession = session;
     c.reminderSentFor = null;
@@ -222,12 +237,12 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
     world = { ok: false, reason: err?.message ?? String(err) };
   }
   if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
-  if (eventError && /permission/i.test(eventError)) ctx.checkHealth?.(interaction.guild).catch?.(() => {});
 
   const unix = Math.floor(at.getTime() / 1000);
   const announcement =
     `🎲 ${campaignMembers(campaign).map(mentionUser).join(" ")} — the next session of **${campaign.name}** is on <t:${unix}:F> (<t:${unix}:R>)!` +
     (url ? `\n📅 Event: ${url}` : "") +
+    (url && voiceChannel ? `\n🔊 Voice channel: <#${voiceChannel}>` : "") +
     (eventError ? `\n⚠️ The Discord event could not be created (${eventError}), but the session is planned.` : "");
   const channel = interaction.channel ?? (await ctx.client?.channels?.fetch(poll.channelId).catch(() => null));
   let announcementError = null;
@@ -250,20 +265,11 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false }
   }
   const foundry = world.ok ? `world \`${campaign.world}\` has the date as its next session` : `⚠️ the next session could not be set on world \`${campaign.world}\` (${world.reason})`;
   const announced = announcementError ? `⚠️ the announcement failed (${announcementError})` : `The session is announced${eventError ? "; the event could not be created" : " and the event is created"}`;
-  return reply(`✅ Decided: <t:${unix}:F>. ${announced}, and ${foundry}.`);
-}
-
-async function createEvent(interaction, ctx, campaign, at) {
-  const guild = interaction.guild ?? (ctx.client?.guilds ? await ctx.client.guilds.fetch(interaction.guildId) : null);
-  if (!guild?.scheduledEvents) throw new Error("the server is not available to the bot");
-  const world = ctx.worldTitle?.(campaign.world) ?? campaign.world;
-  return guild.scheduledEvents.create({
-    name: `${campaign.name} session`.slice(0, 100),
-    scheduledStartTime: at,
-    scheduledEndTime: new Date(at.getTime() + SESSION_DURATION_MS),
-    privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
-    entityType: GuildScheduledEventEntityType.External,
-    entityMetadata: { location: `Foundry VTT: ${world}`.slice(0, 100) },
-    description: `Next session of ${campaign.name}. Planned with a poll.`,
-  });
+  const done = `✅ Decided: <t:${unix}:F>. ${announced}, and ${foundry}.`;
+  // A voice channel was picked for a campaign without a default: offer to keep it.
+  if (picked && voiceChannel && !state.campaign(guildId, campaign.id)?.voiceChannel) {
+    const question = defaultVoiceQuestion(campaign, voiceChannel);
+    return reply(`${done}\n\n${question.text}`, question.components);
+  }
+  return reply(done);
 }
