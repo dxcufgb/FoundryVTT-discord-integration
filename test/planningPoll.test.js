@@ -146,6 +146,9 @@ test("a full poll fits the button layout, and polls posted with the old menu kee
   await handleInteraction(legacy, env.ctx, { log: quietLog });
   assert.deepEqual(env.state.poll("g1", "m1").votes, { p1: [dates[0], dates[3]] });
   assert.equal(last(legacy).components, undefined, "old polls only refresh the embed");
+  const text = last(legacy).embeds[0].toJSON().description;
+  assert.match(text, /in the menu below/);
+  assert.doesNotMatch(text, /Toggle all dates/, "old polls have no such button, so the embed does not mention it");
 });
 
 test("delete poll: creator and DM may, other members may not", async () => {

@@ -119,7 +119,7 @@ async function vote(interaction, ctx, change, { legacy = false } = {}) {
   if (!campaign || !campaignMembers(campaign).includes(interaction.user.id)) return interaction.reply(ephemeral(NOT_POLL_VOTER_MESSAGE));
   const updated = ctx.state.updatePoll(interaction.guildId, poll.id, change);
   // Old polls keep their menu (they may have more dates than a button layout holds); new ones refresh the counts on the buttons.
-  return interaction.update(legacy ? { embeds: [buildPollEmbed(updated, campaign)] } : { embeds: [buildPollEmbed(updated, campaign)], components: pollComponents(updated) });
+  return interaction.update(legacy ? { embeds: [buildPollEmbed(updated, campaign, { menu: true })] } : { embeds: [buildPollEmbed(updated, campaign)], components: pollComponents(updated) });
 }
 
 // --- deleting ------------------------------------------------------------------------

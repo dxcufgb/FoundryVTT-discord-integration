@@ -110,7 +110,8 @@ export function canManagePoll(interaction, poll, campaign, gmRole) {
   return Boolean(userId && String(userId) === poll.createdBy) || canRunPoll(interaction, campaign, gmRole);
 }
 
-export function buildPollEmbed(poll, campaign) {
+/** `menu`: a poll posted with the old vote menu rather than the date buttons. */
+export function buildPollEmbed(poll, campaign, { menu = false } = {}) {
   const rows = tally(poll);
   const lines = rows.map(({ date, voters }) => `**${dateLabel(date)}** — ${voters.length} vote${voters.length === 1 ? "" : "s"}${voters.length ? `: ${voters.map(mentionUser).join(" ")}` : ""}`);
   const members = campaignMembers(campaign ?? { dm: poll.createdBy, players: [] });
@@ -118,7 +119,7 @@ export function buildPollEmbed(poll, campaign) {
   return new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle(`📅 When can we play ${poll.campaignName}?`)
-    .setDescription(`Tap every date that works for you; tap again to take a vote back, or use **Toggle all dates**.\n\n${lines.join("\n")}${waiting.length ? `\n\nNot voted yet: ${waiting.map(mentionUser).join(" ")}` : ""}`)
+    .setDescription(`${menu ? "Pick every date that works for you in the menu below." : "Tap every date that works for you; tap again to take a vote back, or use **Toggle all dates**."}\n\n${lines.join("\n")}${waiting.length ? `\n\nNot voted yet: ${waiting.map(mentionUser).join(" ")}` : ""}`)
     .setFooter({ text: `Times are in ${poll.timezone}` });
 }
 
