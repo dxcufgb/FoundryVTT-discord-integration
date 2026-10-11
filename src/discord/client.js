@@ -5,7 +5,12 @@
 import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { commandMap, requiresAdmin } from "./commands/index.js";
 import { handlePollComponent } from "./commands/planningPoll.js";
+import { handleSessionComponent } from "./commands/session.js";
+import { handleVoiceDefault } from "./sessionEvents.js";
 import { GUILD_ONLY_MESSAGE, isGuildAdministrator, NOT_ADMIN_MESSAGE } from "./permissions.js";
+
+/** Buttons, select menus and modals, by the first part of their customId. */
+const COMPONENT_HANDLERS = new Map([["poll", handlePollComponent], ["session", handleSessionComponent], ["vc", handleVoiceDefault]]);
 
 /**
  * Handle one interaction. Exported so tests can drive it with a fake interaction.
@@ -14,8 +19,9 @@ import { GUILD_ONLY_MESSAGE, isGuildAdministrator, NOT_ADMIN_MESSAGE } from "./p
  */
 export async function handleInteraction(interaction, ctx, { log = console } = {}) {
   if (interaction.isAutocomplete?.()) return handleAutocomplete(interaction, ctx, { log });
-  if (String(interaction.customId ?? "").startsWith("poll:") && (interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isModalSubmit?.())) {
-    return runSafely(() => handlePollComponent(interaction, ctx), interaction, "poll component", log);
+  const component = COMPONENT_HANDLERS.get(String(interaction.customId ?? "").split(":")[0]);
+  if (component && (interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isChannelSelectMenu?.() || interaction.isModalSubmit?.())) {
+    return runSafely(() => component(interaction, ctx), interaction, `${interaction.customId.split(":")[0]} component`, log);
   }
   if (!interaction.isChatInputCommand?.()) return;
   const command = commandMap.get(interaction.commandName);

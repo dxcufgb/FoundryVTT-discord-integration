@@ -30,10 +30,10 @@ export function slugify(name) {
 
 /**
  * Build a new, validated campaign record.
- * @param {{name:string, world:string, dm:string, players?:string[], channel?:string|null, createdBy?:string|null}} input
+ * @param {{name:string, world:string, dm:string, players?:string[], channel?:string|null, voiceChannel?:string|null, createdBy?:string|null}} input
  * @param {{ now?: () => Date }} [ctx]
  */
-export function createCampaign({ name, world, dm, players = [], channel = null, createdBy = null }, { now = () => new Date() } = {}) {
+export function createCampaign({ name, world, dm, players = [], channel = null, voiceChannel = null, createdBy = null }, { now = () => new Date() } = {}) {
   const cleanName = String(name ?? "").trim();
   if (!cleanName) throw new Error("A campaign needs a name");
   if (cleanName.length > MAX_CAMPAIGN_NAME) throw new Error(`Campaign names can be at most ${MAX_CAMPAIGN_NAME} characters`);
@@ -46,6 +46,8 @@ export function createCampaign({ name, world, dm, players = [], channel = null, 
     dm: String(dm),
     players: uniqueUsers(players, dm),
     channel: channel ?? null,
+    // Default voice channel of the campaign's Discord events (null: ask when a session is planned).
+    voiceChannel: voiceChannel ?? null,
     createdAt: now().toISOString(),
     createdBy: createdBy ?? null,
     nextSession: null,
@@ -216,5 +218,6 @@ export function describeCampaign(campaign, { worldTitle = () => null, now = new 
     `• ${describeSession(isCurrentSession(campaign.nextSession, now) ? campaign.nextSession : null, now)}`,
   ];
   if (campaign.channel) lines.push(`• Session messages: <#${campaign.channel}>`);
+  if (campaign.voiceChannel) lines.push(`• Voice channel for events: <#${campaign.voiceChannel}>`);
   return lines.join("\n");
 }

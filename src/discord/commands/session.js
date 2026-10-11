@@ -1,12 +1,15 @@
 // /session: plan a campaign's next session. The DM of the campaign (or an
 // administrator) sets a date and time, or pastes a link to a Discord scheduled
-// event whose start time is taken over. 15 minutes before the session the bot
-// checks that the world is up and tags the DM if it is not (see sessions.js).
+// event whose start time is taken over. `set` also creates a Discord event, in
+// the campaign's default voice channel or (when it has none) one the DM picks
+// or none. 15 minutes before the session the bot checks that the world is up
+// and tags the DM if it is not (see sessions.js).
 
 import { InteractionContextType, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { canManageCampaign, createSession, describeSession, eventUrl, isCurrentSession, mentionUser, NOT_DM_MESSAGE, parseEventLink, parseSessionTime } from "../../campaigns.js";
 import { discordTime } from "../../messages.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
+import { defaultVoiceQuestion, scheduleSessionEvent, voicePrompt } from "../sessionEvents.js";
 import { autocomplete as campaignAutocomplete, findCampaign, NO_SUCH_CAMPAIGN } from "./campaign.js";
 
 const campaignOption = (o, required = true) => o.setName("campaign").setDescription("Campaign (start typing for suggestions)").setRequired(required).setAutocomplete(true);
@@ -68,15 +71,24 @@ export async function execute(interaction, ctx) {
     return interaction.reply(had ? { content: `The planned session of **${campaign.name}** was removed.`, allowedMentions: { parse: [] } } : ephemeral(`**${campaign.name}** had no planned session.`));
   }
 
-  let session;
   if (sub === "set") {
     const timezone = interaction.options.getString("timezone") ?? config.timezone;
+    let at;
     try {
-      session = createSession({ at: parseSessionTime(interaction.options.getString("when", true), timezone, now()), source: "manual", setBy: me }, { now });
+      at = parseSessionTime(interaction.options.getString("when", true), timezone, now());
     } catch (err) {
       return interaction.reply(ephemeral(`That time is not valid: ${err.message}`));
     }
-  } else if (sub === "event") {
+    if (!campaign.voiceChannel) {
+      const prompt = voicePrompt("session", `${campaign.id}:${Math.floor(at.getTime() / 1000)}`, campaign);
+      return interaction.reply({ ...ephemeral(prompt.content), components: prompt.components });
+    }
+    await interaction.deferReply();
+    return interaction.editReply({ content: await planSession(interaction, ctx, campaign, at, campaign.voiceChannel), allowedMentions: { parse: [] } });
+  }
+
+  let session;
+  if (sub === "event") {
     const link = interaction.options.getString("link", true);
     const ref = parseEventLink(link);
     if (!ref) return interaction.reply(ephemeral("That is not a link to a Discord event. Open the event, choose *Copy Event Link* and paste it (https://discord.com/events/<server>/<event>)."));
@@ -99,24 +111,65 @@ export async function execute(interaction, ctx) {
     c.reminderSentFor = null;
   });
   const at = new Date(session.at);
-  // Only /session set also writes the date to the world's world.json (the one write to Foundry's folders).
-  let foundry = "";
-  if (sub === "set") {
-    let world;
-    try {
-      world = ctx.setWorldNextSession ? await ctx.setWorldNextSession(campaign.world, at) : { ok: false, reason: "not available" };
-    } catch (err) {
-      world = { ok: false, reason: err?.message ?? String(err) };
-    }
-    if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
-    foundry = world.ok ? `\nWorld \`${campaign.world}\` has the date as its next session in Foundry.` : `\n⚠️ Could not set it on world \`${campaign.world}\` in Foundry (${world.reason}).`;
-  }
-  const from = session.source === "event" ? ` (from the Discord event${session.eventName ? ` **${session.eventName}**` : ""}: ${session.eventUrl})` : "";
+  const from = ` (from the Discord event${session.eventName ? ` **${session.eventName}**` : ""}: ${session.eventUrl})`;
+  return interaction.reply({ content: announcement(campaign, at, from), allowedMentions: { parse: [] } });
+}
+
+function announcement(campaign, at, extra = "", after = "") {
   const players = campaign.players.length ? `\nPlayers: ${campaign.players.map(mentionUser).join(" ")}` : "";
-  return interaction.reply({
-    content: `📅 Next session of **${campaign.name}**: ${discordTime(at, "F")} (${discordTime(at, "R")})${from}.\nIf world \`${campaign.world}\` is not up 15 minutes before, ${mentionUser(campaign.dm)} will be reminded.${foundry}${players}`,
-    allowedMentions: { parse: [] },
+  return `📅 Next session of **${campaign.name}**: ${discordTime(at, "F")} (${discordTime(at, "R")})${extra}.\nIf world \`${campaign.world}\` is not up 15 minutes before, ${mentionUser(campaign.dm)} will be reminded.${after}${players}`;
+}
+
+/**
+ * /session set, once the place is known: create the Discord event, set the next session and write it to
+ * the world's world.json (the one write to Foundry's folders). Returns the announcement.
+ */
+async function planSession(interaction, ctx, campaign, at, voiceChannel) {
+  const now = ctx.now ?? (() => new Date());
+  const { event, url, error } = await scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, "Planned with /session set.");
+  const session = createSession({ at, source: event ? "event" : "manual", eventId: event?.id ?? null, eventUrl: url, setBy: interaction.user?.id ?? null }, { now });
+  if (event) Object.assign(session, { eventName: event.name ?? null, eventCreated: true });
+  ctx.state.updateCampaign(interaction.guildId, campaign.id, (c) => {
+    c.nextSession = session;
+    c.reminderSentFor = null;
   });
+  let world;
+  try {
+    world = ctx.setWorldNextSession ? await ctx.setWorldNextSession(campaign.world, at) : { ok: false, reason: "not available" };
+  } catch (err) {
+    world = { ok: false, reason: err?.message ?? String(err) };
+  }
+  if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
+  const lines = [
+    url ? `\n📅 Event: ${url}` : `\n⚠️ The Discord event could not be created (${error}), but the session is planned.`,
+    url && voiceChannel ? `\n🔊 Voice channel: <#${voiceChannel}>` : "",
+    world.ok ? `\nWorld \`${campaign.world}\` has the date as its next session in Foundry.` : `\n⚠️ Could not set it on world \`${campaign.world}\` in Foundry (${world.reason}).`,
+  ];
+  return announcement(campaign, at, "", lines.join(""));
+}
+
+/** The answer to the voice channel question of /session set: "session:voice:<campaign>:<unix>" or "session:novoice:…". */
+export async function handleSessionComponent(interaction, ctx) {
+  const guildId = interaction.guildId;
+  if (!guildId) return interaction.reply(ephemeral(GUILD_ONLY_MESSAGE));
+  const [, action, campaignId, unix] = String(interaction.customId).split(":");
+  if (action !== "voice" && action !== "novoice") return undefined;
+  const campaign = ctx.state.campaign(guildId, campaignId);
+  if (!campaign) return interaction.update({ content: "That campaign no longer exists.", components: [] });
+  if (!canManageCampaign(interaction, campaign)) return interaction.reply(ephemeral(NOT_DM_MESSAGE));
+  const at = new Date(Number(unix) * 1000);
+  if (!(at.getTime() > (ctx.now ?? (() => new Date()))().getTime())) return interaction.update({ content: `${discordTime(at, "F")} is in the past now. Run \`/session set\` again.`, components: [] });
+  const voiceChannel = action === "voice" ? (interaction.values?.[0] ?? null) : null;
+
+  await interaction.deferUpdate();
+  const content = await planSession(interaction, ctx, campaign, at, voiceChannel);
+  await interaction.followUp({ content, allowedMentions: { parse: [] } });
+  const done = `✅ Session planned${voiceChannel ? ` with <#${voiceChannel}> as the event's voice channel` : " without a voice channel"}.`;
+  if (voiceChannel && !ctx.state.campaign(guildId, campaign.id)?.voiceChannel) {
+    const question = defaultVoiceQuestion(campaign, voiceChannel);
+    return interaction.editReply({ content: `${done}\n\n${question.text}`, components: question.components, allowedMentions: { parse: [] } });
+  }
+  return interaction.editReply({ content: done, components: [], allowedMentions: { parse: [] } });
 }
 
 async function fetchScheduledEvent(interaction, ctx, eventId) {

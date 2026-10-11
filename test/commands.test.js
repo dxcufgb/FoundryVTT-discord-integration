@@ -286,35 +286,35 @@ test("sessions: set by date, by Discord event, shown and cleared; only the DM or
   const G = "123456789012345678"; // a real-looking server id, so event links can name it
   const run = (c, spec) => runIn(c, { guildId: G, ...spec });
   const c = ctx();
-  await run(c, { command: "campaign", subcommand: "create", options: { name: "Lost Mines", world: "lost-mines", dm: "dm1" }, admin: true });
+  await run(c, { command: "campaign", subcommand: "create", options: { name: "Lost Mines", world: "lost-mines", dm: "dm1", "voice-channel": { id: "vc1" } }, admin: true });
   await run(c, { command: "campaign", subcommand: "join", options: { campaign: "lost-mines" }, userId: "p1" });
 
   const denied = await run(c, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "p1" });
-  assert.equal(denied.replies[0].content, NOT_DM_MESSAGE);
+  assert.equal(denied.replies.at(-1).content, NOT_DM_MESSAGE);
   assert.equal(c.state.campaign(G, "lost-mines").nextSession, null);
 
   const set = await run(c, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
-  assert.match(set.replies[0].content, /Next session of \*\*Lost Mines\*\*: <t:1772906400:F>/, "19:00 Stockholm = 18:00 UTC via the bot's TIMEZONE");
-  assert.match(set.replies[0].content, /<@dm1> will be reminded/);
-  assert.match(set.replies[0].content, /Players: <@p1>/);
-  assert.deepEqual(set.replies[0].allowedMentions, { parse: [] });
+  assert.match(set.replies.at(-1).content, /Next session of \*\*Lost Mines\*\*: <t:1772906400:F>/, "19:00 Stockholm = 18:00 UTC via the bot's TIMEZONE");
+  assert.match(set.replies.at(-1).content, /<@dm1> will be reminded/);
+  assert.match(set.replies.at(-1).content, /Players: <@p1>/);
+  assert.deepEqual(set.replies.at(-1).allowedMentions, { parse: [] });
   let session = c.state.campaign(G, "lost-mines").nextSession;
   assert.equal(session.at, "2026-03-07T18:00:00.000Z");
   assert.equal(session.source, "manual");
   assert.equal(session.setBy, "dm1");
 
   const utc = await run(c, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00", timezone: "UTC" }, admin: true });
-  assert.match(utc.replies[0].content, /<t:1772910000:F>/);
+  assert.match(utc.replies.at(-1).content, /<t:1772910000:F>/);
   const bad = await run(c, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "friday" }, userId: "dm1" });
-  assert.match(bad.replies[0].content, /not valid: Could not understand/);
+  assert.match(bad.replies.at(-1).content, /not valid: Could not understand/);
   const past = await run(c, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-02-01 19:00" }, userId: "dm1" });
-  assert.match(past.replies[0].content, /in the past/);
+  assert.match(past.replies.at(-1).content, /in the past/);
   assert.equal(c.state.campaign(G, "lost-mines").nextSession.at, "2026-03-07T19:00:00.000Z", "invalid input changes nothing");
 
   c.state.updateCampaign(G, "lost-mines", (x) => (x.reminderSentFor = x.nextSession.at));
   const events = { "876543210987654321": { name: "Session 12", scheduledStartAt: new Date("2026-03-14T18:30:00Z") }, "111111111111111111": { name: "Old", scheduledStartAt: new Date("2026-01-01T18:30:00Z") } };
   const ev = await run(c, { command: "session", subcommand: "event", options: { campaign: "lost-mines", link: "https://discord.com/events/123456789012345678/876543210987654321" }, userId: "dm1", events });
-  assert.match(ev.replies[0].content, /<t:1773513000:F>.*from the Discord event \*\*Session 12\*\*: https:\/\/discord\.com\/events\/123456789012345678\/876543210987654321/);
+  assert.match(ev.replies.at(-1).content, /<t:1773513000:F>.*from the Discord event \*\*Session 12\*\*: https:\/\/discord\.com\/events\/123456789012345678\/876543210987654321/);
   session = c.state.campaign(G, "lost-mines").nextSession;
   assert.equal(session.at, "2026-03-14T18:30:00.000Z");
   assert.equal(session.source, "event");
@@ -322,36 +322,36 @@ test("sessions: set by date, by Discord event, shown and cleared; only the DM or
   assert.equal(c.state.campaign(G, "lost-mines").reminderSentFor, null, "a new time arms the reminder again");
 
   const notLink = await run(c, { command: "session", subcommand: "event", options: { campaign: "lost-mines", link: "https://discord.com/channels/1/2" }, userId: "dm1", events });
-  assert.match(notLink.replies[0].content, /not a link to a Discord event/);
+  assert.match(notLink.replies.at(-1).content, /not a link to a Discord event/);
   const otherGuild = await run(c, { command: "session", subcommand: "event", options: { campaign: "lost-mines", link: "https://discord.com/events/999/876543210987654321" }, userId: "dm1", events });
-  assert.match(otherGuild.replies[0].content, /another server/);
+  assert.match(otherGuild.replies.at(-1).content, /another server/);
   const gone = await run(c, { command: "session", subcommand: "event", options: { campaign: "lost-mines", link: "999999999999999999" }, userId: "dm1", events });
-  assert.match(gone.replies[0].content, /Could not read that event: Unknown Guild Scheduled Event/);
+  assert.match(gone.replies.at(-1).content, /Could not read that event: Unknown Guild Scheduled Event/);
   const old = await run(c, { command: "session", subcommand: "event", options: { campaign: "lost-mines", link: "111111111111111111" }, userId: "dm1", events });
-  assert.match(old.replies[0].content, /pick an upcoming one/);
+  assert.match(old.replies.at(-1).content, /pick an upcoming one/);
   const playerEvent = await run(c, { command: "session", subcommand: "event", options: { campaign: "lost-mines", link: "876543210987654321" }, userId: "p1", events });
-  assert.equal(playerEvent.replies[0].content, NOT_DM_MESSAGE);
+  assert.equal(playerEvent.replies.at(-1).content, NOT_DM_MESSAGE);
   assert.equal(c.state.campaign(G, "lost-mines").nextSession.at, "2026-03-14T18:30:00.000Z");
 
   const showOne = await run(c, { command: "session", subcommand: "show", options: { campaign: "lost-mines" }, userId: "p1" });
-  assert.match(showOne.replies[0].content, /Next session <t:1773513000:F> \(<t:1773513000:R>\) · \[Discord event\]/);
+  assert.match(showOne.replies.at(-1).content, /Next session <t:1773513000:F> \(<t:1773513000:R>\) · \[Discord event\]/);
   await run(c, { command: "campaign", subcommand: "create", options: { name: "Other", world: "other", dm: "dm9" }, admin: true });
   const showAll = await run(c, { command: "session", subcommand: "show", userId: "p1" });
-  assert.match(showAll.replies[0].content, /\*\*Lost Mines\*\* \(DM <@dm1>\): Next session/);
-  assert.match(showAll.replies[0].content, /\*\*Other\*\* \(DM <@dm9>\): No session planned/);
+  assert.match(showAll.replies.at(-1).content, /\*\*Lost Mines\*\* \(DM <@dm1>\): Next session/);
+  assert.match(showAll.replies.at(-1).content, /\*\*Other\*\* \(DM <@dm9>\): No session planned/);
 
   const clearDenied = await run(c, { command: "session", subcommand: "clear", options: { campaign: "lost-mines" }, userId: "p1" });
-  assert.equal(clearDenied.replies[0].content, NOT_DM_MESSAGE);
+  assert.equal(clearDenied.replies.at(-1).content, NOT_DM_MESSAGE);
   const cleared = await run(c, { command: "session", subcommand: "clear", options: { campaign: "lost-mines" }, userId: "dm1" });
-  assert.match(cleared.replies[0].content, /was removed/);
+  assert.match(cleared.replies.at(-1).content, /was removed/);
   assert.equal(c.state.campaign(G, "lost-mines").nextSession, null);
   const nothing = await run(c, { command: "session", subcommand: "clear", options: { campaign: "lost-mines" }, admin: true });
-  assert.match(nothing.replies[0].content, /had no planned session/);
+  assert.match(nothing.replies.at(-1).content, /had no planned session/);
   const unknown = await run(c, { command: "session", subcommand: "set", options: { campaign: "nope", when: "2026-03-07 19:00" }, admin: true });
-  assert.match(unknown.replies[0].content, /no campaign called/);
+  assert.match(unknown.replies.at(-1).content, /no campaign called/);
   const empty = ctx();
   const none = await run(empty, { command: "session", subcommand: "show" });
-  assert.match(none.replies[0].content, /No campaigns yet/);
+  assert.match(none.replies.at(-1).content, /No campaigns yet/);
 });
 
 test("autocomplete suggests campaigns of this server and worlds on disk", async () => {
@@ -390,20 +390,20 @@ test("sessions: /session set also writes the date to the world, a failure is rep
   const G = "123456789012345678";
   const writes = [];
   const c = ctx({ setWorldNextSession: (world, at) => { writes.push([world, at.toISOString()]); return { ok: true }; } });
-  await runIn(c, { guildId: G, command: "campaign", subcommand: "create", options: { name: "Lost Mines", world: "lost-mines", dm: "dm1" }, admin: true });
+  await runIn(c, { guildId: G, command: "campaign", subcommand: "create", options: { name: "Lost Mines", world: "lost-mines", dm: "dm1", "voice-channel": { id: "vc1" } }, admin: true });
 
   const set = await runIn(c, { guildId: G, command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
   assert.deepEqual(writes, [["lost-mines", "2026-03-07T18:00:00.000Z"]]);
-  assert.match(set.replies[0].content, /World `lost-mines` has the date as its next session in Foundry/);
+  assert.match(set.replies.at(-1).content, /World `lost-mines` has the date as its next session in Foundry/);
 
   c.setWorldNextSession = () => ({ ok: false, reason: "FOUNDRY_DATA_PATH is not set or not a Foundry data folder" });
   const failed = await runIn(c, { guildId: G, command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-08 19:00" }, userId: "dm1" });
-  assert.match(failed.replies[0].content, /Could not set it on world `lost-mines` in Foundry \(FOUNDRY_DATA_PATH/);
+  assert.match(failed.replies.at(-1).content, /Could not set it on world `lost-mines` in Foundry \(FOUNDRY_DATA_PATH/);
   assert.equal(c.state.campaign(G, "lost-mines").nextSession.at, "2026-03-08T18:00:00.000Z", "the session is still planned");
 
   c.setWorldNextSession = () => { throw new Error("boom"); };
   const threw = await runIn(c, { guildId: G, command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-09 19:00" }, userId: "dm1" });
-  assert.match(threw.replies[0].content, /\(boom\)/);
+  assert.match(threw.replies.at(-1).content, /\(boom\)/);
 
   const before = writes.length;
   c.setWorldNextSession = (...a) => { writes.push(a); return { ok: true }; };
