@@ -107,8 +107,8 @@ Plan a campaign's next session. `set`, `event` and `clear` are for the **campaig
 
 Let a campaign vote on the date of its next session. Available to **server administrators, the campaign's DM and members of the game master role** (`/gm-role`); everyone else is refused.
 
-1. You get a menu with the next 25 days (in the bot's `TIMEZONE`); pick the candidate dates.
-2. The bot posts the poll in the same channel, tagging the DM and all players. Each of them votes with a menu (pick every date that works; picking again replaces the previous vote). Only the DM and the players can vote.
+1. You get a menu with the next 20 days (in the bot's `TIMEZONE`); pick the candidate dates.
+2. The bot posts the poll in the same channel, tagging the DM and all players. Every date is a button showing its vote count: tap the dates that work for you, tap again to take a vote back. **Toggle all dates** votes for every date, or withdraws all your votes when you already have them all. Only the DM and the players can vote. A poll has at most 20 dates (the buttons have to fit one message). Polls posted before this change keep their old vote menu.
 3. Under the poll are two buttons for the poll's creator, the campaign's DM, game masters and administrators:
    - **Decide date** — offers the dates with the most votes (all of them if tied). Pick one, then a start time (half-hour slots from 10:00 to 22:00, or *Other time…* to type `HH:MM`). The bot then creates a **Discord scheduled event** (an external event named *<campaign> session*, three hours long), announces date, time and event link in the poll's channel tagging everyone, and sets the campaign's **next session** (the same as `/session set`, so the 15-minute world check applies). It also writes the date to the `nextSession` field of the world's `world.json` (needs `FOUNDRY_DATA_PATH`), so it shows in Foundry's setup screen; Foundry may need the world relaunched to pick it up. The poll message is turned into the final result and its controls are removed.
    - **Delete poll** — deletes the poll message.
