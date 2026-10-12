@@ -12,7 +12,7 @@
 
   The update asks GitHub for the latest release and, only if it is newer than the installed
   version, downloads the matching asset (the setup.exe for an installation made with setup.exe,
-  otherwise the -windows.zip), verifies its SHA-256 against the release's checksum file and
+  otherwise the -windows.zip), verifies its SHA-256 against the release's SHA256SUMS.txt and
   installs it the same way as a manual upgrade: setup.exe /VERYSILENT, or for a zip installation
   copying the new files over the old ones (.env and data\ are never touched). The configuration
   file(s) are restored byte for byte afterwards and the bot's task is restarted. A failed zip

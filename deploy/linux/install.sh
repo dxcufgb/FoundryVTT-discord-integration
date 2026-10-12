@@ -1,24 +1,11 @@
 #!/usr/bin/env bash
-# Interactive installer for the Foundry VTT Discord integration on Linux.
+# Installer for the Foundry VTT Discord integration on Linux (systemd).
 #
-# Guided install (asks every question, with sensible defaults it detects):
-#   sudo ./deploy/linux/install.sh
-#
-# One-liner that downloads the latest release first:
+# Install or upgrade (asks for what it needs, with defaults it detects; .env and data/ are kept):
+#   sudo ./install.sh                                   from the extracted release archive
+#   curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration
 #   curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash
-#
-# Unattended (for scripts and CI):
-#   sudo ./deploy/linux/install.sh --non-interactive --token <bot token> --client-id <id> \
-#        --data-path /home/foundry/foundrydata [--user foundry] [--dir /opt/foundryvtt-discord-integration] \
-#        [--url http://localhost:30000] [--guild-id <id>] [--timezone Europe/Stockholm] [--interval 30] [--no-start]
-#        [--auto-update | --no-auto-update]
-#
-# Automatic updates (opt-in; a daily systemd timer installs new releases, see docs/INSTALL.md):
-#   sudo ./deploy/linux/install.sh --enable-auto-update | --disable-auto-update [--dir <install folder>]
-#   (re-running the installer keeps the current choice unless --auto-update/--no-auto-update is given)
-#
-# Remove again:
-#   sudo ./deploy/linux/install.sh --uninstall [--purge]      (--purge also deletes the files, .env and data)
+# Run sudo ./install.sh --help for every option.
 #
 # What it does: checks for Node.js 20+ (offers to install it), finds the running
 # Foundry server to suggest its user, port and data folder, asks for the Discord
@@ -57,10 +44,52 @@ VERSION="latest"
 AUTO_UPDATE=""   # empty: keep the current choice (ask when interactive); 1 / 0: turn on / off
 UPDATER_ONLY=0
 
-usage() { sed -n '2,25p' "$0"; }
+ACTION=""        # check-update / update-now
+TOKEN_FILE="/etc/$APP_NAME/github-token"
+
+usage() {
+  cat <<EOF
+Usage: sudo ./install.sh [options]      (the same as sudo ./deploy/linux/install.sh [options])
+
+  (none)                    install or upgrade in place, interactive (asks for what it needs)
+  --yes, -y                 non-interactive: no questions; missing required settings -> clear error
+  --auto-update             turn automatic updates on as part of this install
+  --no-auto-update          turn automatic updates off as part of this install
+  --enable-auto-update      turn automatic updates on for an existing install, nothing else
+  --disable-auto-update     turn automatic updates off for an existing install, nothing else
+  --check-update            only check: exit 0 = up to date, 10 = newer release available, other = error
+  --update-now              install the latest release now (same path as the daily updater)
+  --uninstall [--purge]     remove the service (--purge also deletes the files, .env and data)
+  --help, -h                this list
+
+Options for this bot:
+  --non-interactive         same as --yes
+  --token <bot token>       Discord bot token (required for a new install with --yes)
+  --client-id <id>          Discord application id (required for a new install with --yes)
+  --guild-id <id>           Discord server id: slash commands appear there at once (optional)
+  --data-path <folder>      Foundry user data folder (contains Config, Data, Logs)
+  --app-path <folder>       Foundry install folder (optional)
+  --url <url>               Foundry URL as seen from this machine (default http://localhost:30000)
+  --user <name>             Linux account the bot runs as (default: the account running Foundry)
+  --dir <folder>            install folder (default /opt/$APP_NAME)
+  --timezone <IANA name>    timezone for restart windows, e.g. Europe/Stockholm
+  --interval <seconds>      check Foundry every N seconds (default 30, at least 5)
+  --no-start                do not start the service after installing
+  --version <tag>           with the curl one-liner of install.sh alone: install this release (e.g. v1.2.3)
+                            instead of the latest
+
+Re-running the installer keeps .env, data/ and the automatic-update choice unless --auto-update or
+--no-auto-update is given. Automatic updates check GitHub daily (systemd timer $UPDATER.timer,
+log: journalctl -u $UPDATER). The optional GitHub token for the updater is read from
+$TOKEN_FILE (root, mode 600); when INSTALL_GITHUB_TOKEN is set in the environment and automatic
+updates are turned on, it is stored there if that file does not exist yet (asked first when interactive).
+EOF
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --non-interactive|-y) INTERACTIVE=0; shift ;;
+    --non-interactive|--yes|-y) INTERACTIVE=0; shift ;;
+    --check-update) ACTION=check-update; shift ;;
+    --update-now) ACTION=update-now; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     --no-start) START=0; shift ;;
     --purge) PURGE=1; shift ;;
@@ -164,7 +193,26 @@ enable_auto_update() { # enable_auto_update <install dir>
   chmod 644 "/etc/systemd/system/$UPDATER.service" "/etc/systemd/system/$UPDATER.timer"
   systemctl daemon-reload
   systemctl enable --now "$UPDATER.timer" >/dev/null 2>&1 || systemctl enable --now "$UPDATER.timer"
+  store_github_token
   ok "Automatic updates on: new releases are installed daily (log: journalctl -u $UPDATER)"
+}
+# The one-liner (dxcufgb/install) exports the GitHub token it used as INSTALL_GITHUB_TOKEN. Keep it for the
+# updater when there is no token file yet (the repository is public, so the updater works without one too).
+# Never printed; same place, owner and mode as a token file made by hand.
+store_github_token() {
+  [[ -n "${INSTALL_GITHUB_TOKEN:-}" && ! -f "$TOKEN_FILE" ]] || return 0
+  ask_yn "Store the GitHub token from INSTALL_GITHUB_TOKEN in $TOKEN_FILE for the automatic updates?" y || return 0
+  install -d -o root -g root -m 700 "$(dirname "$TOKEN_FILE")"
+  (umask 077 && printf '%s\n' "$INSTALL_GITHUB_TOKEN" > "$TOKEN_FILE")
+  chown root:root "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
+  ok "GitHub token stored in $TOKEN_FILE (root, mode 600)"
+}
+# The auto-updater next to this installer (same release), else the installed one.
+updater_script() { # updater_script <install dir>
+  local here=""
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; fi
+  if [[ -n "$here" && -f "$here/auto-update.sh" ]]; then echo "$here/auto-update.sh"; else echo "$1/deploy/linux/auto-update.sh"; fi
 }
 disable_auto_update() {
   systemctl disable --now "$UPDATER.timer" 2>/dev/null || true
@@ -179,6 +227,21 @@ if [[ $UPDATER_ONLY -eq 1 ]]; then
   INSTALL_DIR="${INSTALL_DIR:-/opt/$APP_NAME}"
   if [[ $AUTO_UPDATE -eq 1 ]]; then enable_auto_update "${INSTALL_DIR%/}"; else disable_auto_update; fi
   exit 0
+fi
+
+# --- check for / install the latest release (deploy/linux/auto-update.sh, what the daily timer runs) ------------
+if [[ -n "$ACTION" ]]; then
+  INSTALL_DIR="${INSTALL_DIR:-$(dir_from_unit)}"
+  INSTALL_DIR="${INSTALL_DIR:-/opt/$APP_NAME}"
+  INSTALL_DIR="${INSTALL_DIR%/}"
+  [[ -f "$INSTALL_DIR/package.json" ]] || die "No installation found in $INSTALL_DIR (use --dir)."
+  UPDATER_SCRIPT="$(updater_script "$INSTALL_DIR")"
+  [[ -f "$UPDATER_SCRIPT" ]] || die "$INSTALL_DIR has no auto-updater (install a newer version first)."
+  if [[ $ACTION == check-update ]]; then
+    grep -q -- '--check-update' "$UPDATER_SCRIPT" || die "$UPDATER_SCRIPT is too old for --check-update; run this option from a newer release's install.sh."
+    exec bash "$UPDATER_SCRIPT" --check-update --dir "$INSTALL_DIR"
+  fi
+  exec bash "$UPDATER_SCRIPT" --dir "$INSTALL_DIR"
 fi
 
 # --- uninstall ------------------------------------------------------------------------------------------------
@@ -215,13 +278,27 @@ done
 TMP=""
 if [[ -z "$SOURCE" ]]; then
   command -v curl >/dev/null || die "curl is needed to download the release."
-  if [[ "$VERSION" == "latest" ]]; then API="https://api.github.com/repos/$REPO/releases/latest"; else API="https://api.github.com/repos/$REPO/releases/tags/$VERSION"; fi
-  URL="$(curl -fsSL "$API" | grep -o '"browser_download_url": *"[^"]*-linux\.tar\.gz"' | head -n1 | sed 's/.*"\(http[^"]*\)"/\1/')"
+  if [[ "$VERSION" == "latest" ]]; then API="https://api.github.com/repos/$REPO/releases/latest"; else API="https://api.github.com/repos/$REPO/releases/tags/v${VERSION#v}"; fi
+  RELEASE_JSON="$(curl -fsSL "$API")" || die "Could not ask GitHub for release $VERSION of $REPO."
+  asset_url() { grep -o "\"browser_download_url\": *\"https://[^\"]*/$1\"" <<<"$RELEASE_JSON" | head -n1 | sed 's/.*"\(https:[^"]*\)"/\1/'; }
+  URL="$(asset_url "$APP_NAME-[0-9][^\"/]*-linux\\.tar\\.gz")"
+  SUMS_URL="$(asset_url 'SHA256SUMS\.txt')"
   [[ -n "$URL" ]] || die "Could not find a Linux release bundle for $VERSION at https://github.com/$REPO/releases"
-  say "  Downloading ${URL##*/}"
+  [[ -n "$SUMS_URL" ]] || die "Release $VERSION has no SHA256SUMS.txt, so its bundle cannot be verified."
+  BUNDLE="${URL##*/}"
+  say "  Downloading $BUNDLE"
   TMP="$(mktemp -d)"; trap '[[ -n "$TMP" ]] && rm -rf "$TMP"' EXIT
-  curl -fsSL "$URL" | tar -xz -C "$TMP"
-  SOURCE="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  curl -fsSL -o "$TMP/$BUNDLE" "$URL"
+  curl -fsSL -o "$TMP/SHA256SUMS.txt" "$SUMS_URL"
+  # Lines are "<sha256>  [*][dir/]<name>"; older releases wrote dist/<name>.
+  EXPECTED="$(awk -v n="$BUNDLE" '{ f = $2; sub(/^\*/, "", f); sub(/.*\//, "", f); if (f == n) { print tolower($1); exit } }' "$TMP/SHA256SUMS.txt")"
+  [[ -n "$EXPECTED" ]] || die "SHA256SUMS.txt of release $VERSION has no entry for $BUNDLE."
+  [[ "$(sha256sum "$TMP/$BUNDLE" | cut -d' ' -f1)" == "$EXPECTED" ]] || die "Checksum mismatch for $BUNDLE; nothing was installed."
+  ok "Verified $BUNDLE (SHA-256)"
+  mkdir "$TMP/x"
+  tar -xzf "$TMP/$BUNDLE" -C "$TMP/x" --no-same-owner
+  SOURCE="$(find "$TMP/x" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  [[ -n "$SOURCE" && -f "$SOURCE/package.json" && -f "$SOURCE/src/index.js" ]] || die "$BUNDLE does not look like a bot release."
   ok "Downloaded to a temporary folder"
 else
   ok "Using the files in $SOURCE"
@@ -452,7 +529,7 @@ say "  Useful commands:"
 say "    sudo journalctl -u $SERVICE -f     follow the log"
 say "    sudo systemctl restart $SERVICE    after editing $INSTALL_DIR/.env"
 if [[ $AUTO_UPDATE == 1 ]]; then
-  say "    sudo $INSTALL_DIR/deploy/linux/auto-update.sh --check     is there a newer release? (updates run daily)"
+  say "    sudo $INSTALL_DIR/deploy/linux/install.sh --check-update   is there a newer release? (updates run daily)"
   say "    sudo $INSTALL_DIR/deploy/linux/install.sh --disable-auto-update"
 else
   say "    sudo $INSTALL_DIR/deploy/linux/install.sh --enable-auto-update   install new releases automatically"

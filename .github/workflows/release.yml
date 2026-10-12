@@ -1,47 +1,102 @@
-# Builds and publishes the bot whenever a version tag (v1.2.3) is pushed, a
-# GitHub Release with such a tag is published (publishing a release creates the
-# tag, which also triggers this workflow), or the workflow is run by hand from
-# the Actions tab with the tag to create.
+# Release: builds the bot for Linux and Windows and publishes a GitHub Release. The version comes from
+# the tag; nobody bumps a version in the code (the build stamps it into the bundles' package.json).
 #
-# How to release a new version:
-#   1. Update CHANGELOG.md (a "## [1.2.3]" section) and push your changes.
-#   2. Either push a tag:   git tag v1.2.3 && git push origin v1.2.3
-#      or on GitHub: Releases -> "Draft a new release" -> create tag v1.2.3 -> Publish,
-#      or Actions -> "Release bot" -> "Run workflow" -> enter v1.2.3.
-#   3. This workflow runs the tests, creates the release if it does not exist yet
-#      (notes taken from the CHANGELOG.md section), and attaches:
-#        foundryvtt-discord-integration-<version>-linux.tar.gz   bundle + interactive installer
-#        install.sh                                               the Linux installer alone (curl | sudo bash)
-#        foundryvtt-discord-integration-<version>-windows.zip     bundle + Task Scheduler scripts
-#        foundryvtt-discord-integration-<version>-setup.exe       Windows installer (Inno Setup)
-#
-# The version number in package.json is taken from the tag.
-# See docs/RELEASING.md for the full procedure.
+# How to release:
+#   1. Actions -> Release -> Run workflow (branch main) -> type the version, e.g. 1.2.3 (a leading v is
+#      stripped; 1.2.3-rc.1 makes a pre-release). CI runs, every file is built, a draft release v1.2.3 is
+#      created with all files attached and published only when everything worked.
+#   2. Fallback: publish a release v1.2.3 by hand on GitHub (Releases -> Draft a new release -> tag v1.2.3
+#      on main -> Publish). The files are built and attached to it afterwards; its notes are kept.
+# Release notes (way 1): the "## [1.2.3]" section of CHANGELOG.md when there is one, otherwise GitHub's
+# generated notes. Files: see scripts/build-release.sh and docs/RELEASING.md.
 
-name: Release bot
+name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Version tag to release, e.g. v1.0.1 (created on the chosen branch if it does not exist)"
+      version:
+        description: "Version to release, e.g. 1.2.3 (1.2.3-rc.1 makes a pre-release)"
         required: true
         type: string
+  release:
+    types: [published]
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  build:
+  prepare:
+    name: Work out the version
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     permissions:
-      contents: write # create the release and attach the bundles
+      contents: read
     outputs:
-      tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - name: Version, tag and pre-release flag
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+          fail() { echo "::error::$*"; exit 1; }
+          if [[ $EVENT == workflow_dispatch ]]; then
+            VERSION="$(printf '%s' "$INPUT_VERSION" | tr -d '[:space:]')"
+            VERSION="${VERSION#v}"
+            [[ $VERSION =~ $semver ]] || fail "'$INPUT_VERSION' is not a version like 1.2.3 or 1.2.3-rc.1."
+            [[ $REF == "refs/heads/$DEFAULT_BRANCH" ]] || fail "Run the release from the default branch ($DEFAULT_BRANCH), not $REF."
+            TAG="v$VERSION"
+            if out="$(gh api "repos/$REPO/git/ref/tags/$TAG" 2>&1)"; then
+              fail "The tag $TAG already exists. Pick a new version."
+            elif ! grep -q 'HTTP 404' <<<"$out"; then
+              fail "Could not check whether the tag $TAG exists: $out"
+            fi
+            # Published releases (drafts are checked again by the publish job, which can see them).
+            n="$(gh api --paginate "repos/$REPO/releases" | jq -s --arg t "$TAG" '[add[] | select(.tag_name == $t or .name == $t)] | length')"
+            [[ $n == 0 ]] || fail "A release named $TAG already exists."
+            if [[ $VERSION == *-* ]]; then PRERELEASE=true; else PRERELEASE=false; fi
+          else
+            TAG="$RELEASE_TAG"
+            [[ $TAG == v* && ${TAG#v} =~ $semver ]] || fail "The release tag '$TAG' must look like v1.2.3 (or v1.2.3-rc.1)."
+            VERSION="${TAG#v}"
+            if [[ $RELEASE_PRERELEASE == true ]]; then PRERELEASE=true; else PRERELEASE=false; fi
+          fi
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG (version $VERSION, pre-release: $PRERELEASE) from $EVENT"
+
+  ci:
+    name: CI
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository] the same commit's CI, as the release standard asks
+
+  build:
+    name: Build the archives
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,111 +109,35 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
-      - name: Work out version
-        id: meta
+      - name: Build the Linux and Windows archives (version stamped from the tag)
         env:
-          RAW_TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          TAG="$RAW_TAG"
-          # Strict check: the tag ends up in file names, release names and later steps.
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Tag '$TAG' must look like v1.2.3 (optionally v1.2.3-beta.1)" >&2
-            exit 1
-          fi
-          VERSION="${TAG#v}"
-          {
-            echo "tag=${TAG}"
-            echo "version=${VERSION}"
-            echo "name=foundryvtt-discord-integration-${VERSION}"
-          } >> "$GITHUB_OUTPUT"
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: scripts/build-release.sh build dist "$VERSION"
 
-      - name: Run tests
-        run: |
-          npm ci
-          npm test
+      - name: Keep the archives for the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: archives
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
 
-      - name: Stamp version into package.json
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
-          head -5 package.json
-
-      - name: Install production dependencies only
-        run: |
-          rm -rf node_modules
-          npm ci --omit=dev --no-audit --no-fund
-
-      - name: Build bundles
-        env:
-          NAME: ${{ steps.meta.outputs.name }}
-        run: |
-          COMMON=(src scripts docs node_modules package.json package-lock.json README.md LICENSE CHANGELOG.md .env.example)
-          rm -rf dist && mkdir -p "dist/linux/$NAME" "dist/windows/$NAME"
-
-          cp -R "${COMMON[@]}" "dist/linux/$NAME/"
-          mkdir -p "dist/linux/$NAME/deploy" && cp -R deploy/linux "dist/linux/$NAME/deploy/"
-          tar -C dist/linux -czf "dist/$NAME-linux.tar.gz" "$NAME"
-
-          cp -R "${COMMON[@]}" "dist/windows/$NAME/"
-          mkdir -p "dist/windows/$NAME/deploy" && cp -R deploy/windows "dist/windows/$NAME/deploy/"
-          (cd dist/windows && zip -qr "../$NAME-windows.zip" "$NAME")
-
-          cp deploy/linux/install.sh dist/install.sh
-          ls -la dist/*.tar.gz dist/*.zip dist/install.sh
-          sha256sum dist/*.tar.gz dist/*.zip dist/install.sh > dist/SHA256SUMS.txt
-          cat dist/SHA256SUMS.txt
-
-      - name: Keep the Windows payload for the installer job
+      - name: Keep the Windows payload for the setup job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-payload
-          path: dist/windows/${{ steps.meta.outputs.name }}
+          path: dist/payload/windows/foundryvtt-discord-integration-${{ needs.prepare.outputs.version }}
           include-hidden-files: true
           if-no-files-found: error
 
-      - name: Release notes from CHANGELOG.md
-        id: notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" { on=1; next }
-            on && /^## \[/ { exit }
-            on && !/^\[.*\]: http/ { print }
-          ' CHANGELOG.md > dist/RELEASE_NOTES.md
-          [ -s dist/RELEASE_NOTES.md ] || echo "Release ${TAG}." > dist/RELEASE_NOTES.md
-          cat dist/RELEASE_NOTES.md
-          # Only set the notes when this workflow creates the release; a release
-          # published by hand keeps the notes written on GitHub.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "body_path=" >> "$GITHUB_OUTPUT"
-          else
-            echo "body_path=dist/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create the release (if needed) and attach the bundles
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ steps.meta.outputs.tag }}
-          body_path: ${{ steps.notes.outputs.body_path }}
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/install.sh
-            dist/SHA256SUMS.txt
-
-  installer:
-    name: Windows installer
-    needs: build
+  setup:
+    name: Build the Windows setup.exe
+    needs: [prepare, build]
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
-      contents: write # attach the installer to the release
+      contents: read
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -174,17 +153,125 @@ jobs:
       - name: Compile with Inno Setup
         shell: pwsh
         env:
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:VERSION" "/DSourceDir=$env:GITHUB_WORKSPACE\payload" deploy\windows\installer.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-FileHash dist\*-setup.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content dist\SHA256SUMS-setup.txt
-          Get-Content dist\SHA256SUMS-setup.txt
+          Get-ChildItem dist
 
-      - name: Attach the installer to the release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - name: Keep the setup.exe for the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          files: |
-            dist/*-setup.exe
-            dist/SHA256SUMS-setup.txt
+          name: setup
+          path: dist/foundryvtt-discord-integration-${{ needs.prepare.outputs.version }}-setup.exe
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: [prepare, ci, build, setup]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and attach the files
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archives
+          path: dist
+
+      - name: Fetch the setup.exe
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: setup
+          path: dist
+
+      - name: Fixed names, legacy files and SHA256SUMS.txt
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          scripts/build-release.sh finalize dist "$VERSION"
+          cat dist/SHA256SUMS.txt
+
+      - name: Release notes
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The "## [X.Y.Z]" section of CHANGELOG.md, without its link reference lines.
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on && !/^\[.*\]: http/ { print }
+          ' CHANGELOG.md > notes.md
+          if grep -q '[^[:space:]]' notes.md; then
+            echo "Notes from the CHANGELOG.md section [$VERSION]."
+          else
+            gh api "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --jq .body > notes.md
+            echo "No CHANGELOG.md section [$VERSION]; using GitHub's generated notes."
+          fi
+          cat notes.md
+
+      - name: Create the draft release, attach everything, publish it
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          # Checked again here: this job can also see draft releases, and time has passed since prepare.
+          if out="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" 2>&1)"; then
+            echo "::error::The tag $TAG appeared while the release was being built; nothing was published."; exit 1
+          elif ! grep -q 'HTTP 404' <<<"$out"; then
+            echo "::error::Could not check the tag $TAG: $out"; exit 1
+          fi
+          n="$(gh api --paginate "repos/$GH_REPO/releases" | jq -s --arg t "$TAG" '[add[] | select(.tag_name == $t or .name == $t)] | length')"
+          if [[ $n != 0 ]]; then
+            echo "::error::A release (or draft) named $TAG already exists; delete the draft or pick a new version."; exit 1
+          fi
+          mapfile -t files < <(sed 's|^|dist/|' dist/release-files.txt)
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md "${files[@]}"
+          if [[ $PRERELEASE == true ]]; then
+            gh release edit "$TAG" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --draft=false --latest
+          fi
+
+      - name: Attach everything to the published release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(sed 's|^|dist/|' dist/release-files.txt)
+          gh release upload "$TAG" --clobber "${files[@]}"
+
+      - name: Summary
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          {
+            echo "## Release $TAG"
+            echo
+            echo "https://github.com/$GH_REPO/releases/tag/$TAG (pre-release: $PRERELEASE, from $EVENT)"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

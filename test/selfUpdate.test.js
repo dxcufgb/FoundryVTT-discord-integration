@@ -58,10 +58,16 @@ const release = (version, names) => ({
 test("selectAssets picks the platform's bundle and checksum file", () => {
   const r = release("1.3.0", ["foundryvtt-discord-integration-1.3.0-linux.tar.gz", "foundryvtt-discord-integration-1.3.0-windows.zip", "foundryvtt-discord-integration-1.3.0-setup.exe", "install.sh", "SHA256SUMS.txt", "SHA256SUMS-setup.txt"]);
   assert.equal(selectAssets(r, "linux").asset.name, "foundryvtt-discord-integration-1.3.0-linux.tar.gz");
-  assert.equal(selectAssets(r, "linux").sums.name, "SHA256SUMS.txt");
+  assert.deepEqual(selectAssets(r, "linux").sums.map((a) => a.name), ["SHA256SUMS.txt"]);
   assert.equal(selectAssets(r, "windows-zip").asset.name, "foundryvtt-discord-integration-1.3.0-windows.zip");
-  assert.equal(selectAssets(r, "windows-setup").sums.name, "SHA256SUMS-setup.txt");
-  assert.match(selectAssets(release("1.3.0", ["foundryvtt-discord-integration-1.3.0-linux.tar.gz"]), "linux").error, /publishes no SHA256SUMS.txt/);
+  assert.equal(selectAssets(r, "windows-setup").asset.name, "foundryvtt-discord-integration-1.3.0-setup.exe");
+  // SHA256SUMS.txt first; SHA256SUMS-setup.txt only as the fallback for releases up to v1.3.2.
+  assert.deepEqual(selectAssets(r, "windows-setup").sums.map((a) => a.name), ["SHA256SUMS.txt", "SHA256SUMS-setup.txt"]);
+  const legacyOnly = release("1.3.0", ["foundryvtt-discord-integration-1.3.0-setup.exe", "SHA256SUMS-setup.txt"]);
+  assert.deepEqual(selectAssets(legacyOnly, "windows-setup").sums.map((a) => a.name), ["SHA256SUMS-setup.txt"]);
+  assert.match(selectAssets(legacyOnly, "windows-zip").error, /has no foundryvtt-discord-integration-1.3.0-windows.zip/);
+  assert.match(selectAssets(release("1.3.0", ["foundryvtt-discord-integration-1.3.0-linux.tar.gz", "SHA256SUMS-setup.txt"]), "linux").error, /publishes no SHA256SUMS.txt/);
+  assert.match(selectAssets(release("1.3.0", ["foundryvtt-discord-integration-1.3.0-setup.exe"]), "windows-setup").error, /publishes no SHA256SUMS.txt or SHA256SUMS-setup.txt/);
   assert.match(selectAssets(release("1.3.0", ["SHA256SUMS.txt"]), "linux").error, /has no foundryvtt-discord-integration-1.3.0-linux.tar.gz/);
   assert.throws(() => selectAssets(r, "mac"), /Unknown platform/);
 });
@@ -74,19 +80,25 @@ test("headersFor sends the token to api.github.com only", () => {
   assert.equal(headersFor("https://api.github.com/x", null).Authorization, undefined);
 });
 
-/** A fake GitHub: the API, a redirecting download URL and a pre-signed storage host. */
-function fakeGithub({ version = "1.3.0", bundle = Buffer.from("bundle bytes"), sumsFor = bundle, extra = {} } = {}) {
-  const name = `foundryvtt-discord-integration-${version}-linux.tar.gz`;
+/**
+ * A fake GitHub: the API, a redirecting download URL and a pre-signed storage host. `sums` maps each
+ * checksum file of the release to whether it lists the bundle.
+ */
+function fakeGithub({ version = "1.3.0", suffix = "linux.tar.gz", bundle = Buffer.from("bundle bytes"), sumsFor = bundle, sums = { "SHA256SUMS.txt": true }, extra = {} } = {}) {
+  const name = `foundryvtt-discord-integration-${version}-${suffix}`;
   const hash = crypto.createHash("sha256").update(sumsFor).digest("hex");
+  const other = crypto.createHash("sha256").update("other").digest("hex");
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url, auth: init.headers.Authorization ?? null, redirect: init.redirect });
     if (extra[url]) return extra[url]();
-    if (url === "https://api.github.com/repos/o/r/releases/latest") return Response.json({ ...release(version, [name, "SHA256SUMS.txt"]), html_url: "https://github.com/o/r/releases/v" + version });
+    if (url === "https://api.github.com/repos/o/r/releases/latest") return Response.json({ ...release(version, [name, ...Object.keys(sums)]), html_url: "https://github.com/o/r/releases/v" + version });
     const asset = /\/(?:releases\/download\/v[^/]+|releases\/assets)\/(.+)$/.exec(url)?.[1];
     if (asset) return new Response(null, { status: 302, headers: { location: `https://objects.example/${asset}?X-Amz-Signature=abc` } });
     if (url === `https://objects.example/${name}?X-Amz-Signature=abc`) return new Response(bundle);
-    if (url === "https://objects.example/SHA256SUMS.txt?X-Amz-Signature=abc") return new Response(`${hash}  dist/${name}\n`);
+    for (const [file, listed] of Object.entries(sums)) {
+      if (url === `https://objects.example/${file}?X-Amz-Signature=abc`) return new Response(listed ? `${hash}  dist/${name}\n` : `${other}  install.sh\n`);
+    }
     return new Response("not found", { status: 404 });
   };
   return { fetchImpl, calls, name };
@@ -129,6 +141,21 @@ test("runUpdate does nothing when up to date, and check mode downloads nothing",
   assert.equal(check.status, "update");
   assert.equal(check.file, undefined);
   assert.equal(gh.calls.length, 3);
+  assert.deepEqual(fs.readdirSync(out), []);
+});
+
+test("runUpdate verifies a setup.exe with SHA256SUMS.txt, and with SHA256SUMS-setup.txt on releases up to v1.3.2", async () => {
+  const current = fakeGithub({ suffix: "setup.exe", sums: { "SHA256SUMS.txt": true, "SHA256SUMS-setup.txt": true } });
+  const r = await runUpdate({ dir: installDir("1.2.2"), platform: "windows-setup", outDir: tmpDir(), repo: "o/r", fetchImpl: current.fetchImpl, log: quiet });
+  assert.equal(r.asset, current.name);
+  assert.ok(!current.calls.some((c) => c.url.includes("SHA256SUMS-setup.txt")), "the legacy file is not needed");
+
+  const legacy = fakeGithub({ suffix: "setup.exe", sums: { "SHA256SUMS.txt": false, "SHA256SUMS-setup.txt": true } });
+  assert.equal((await runUpdate({ dir: installDir("1.2.2"), platform: "windows-setup", outDir: tmpDir(), repo: "o/r", fetchImpl: legacy.fetchImpl, log: quiet })).asset, legacy.name);
+
+  const none = fakeGithub({ suffix: "setup.exe", sums: { "SHA256SUMS.txt": false } });
+  const out = tmpDir();
+  await assert.rejects(runUpdate({ dir: installDir("1.2.2"), platform: "windows-setup", outDir: out, repo: "o/r", fetchImpl: none.fetchImpl, log: quiet }), /SHA256SUMS.txt has no entry/);
   assert.deepEqual(fs.readdirSync(out), []);
 });
 

@@ -4,13 +4,16 @@
 # Normally run once a day by foundryvtt-discord-bot-update.timer (enable it with
 # `sudo deploy/linux/install.sh --enable-auto-update`). By hand:
 #   sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh --check   only report whether a newer release exists
+#   sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh --check-update   the same, with the exit code
+#                                                                                 0 = up to date, 10 = newer release, other = error
+#                                                                                 (what install.sh --check-update runs)
 #   sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh           update now if a newer release exists
 #   [--dir <install folder>]                                                      default: the service's WorkingDirectory
 #
 # It asks GitHub for the latest release, and only if that is a newer version downloads the Linux
-# bundle, verifies its SHA-256 against the release's SHA256SUMS.txt, and installs it with the
-# bundle's own installer (--non-interactive --no-start, the same upgrade as a manual run). .env is
-# restored byte for byte afterwards and data/ is never touched. If anything fails, or the bot does
+# bundle (foundryvtt-discord-integration-X.Y.Z-linux.tar.gz), verifies its SHA-256 against the release's
+# SHA256SUMS.txt, and installs it with the bundle's own installer (--non-interactive --no-start, the
+# same upgrade as a manual run). .env is restored byte for byte afterwards and data/ is never touched. If anything fails, or the bot does
 # not come back up, the previous version is put back. Logs go to the journal:
 #   journalctl -u foundryvtt-discord-bot-update
 # Optional GitHub token (only needed for a private fork): /etc/foundryvtt-discord-integration/github-token (root, mode 600).
@@ -30,10 +33,11 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 # Everything runs inside main(): bash reads the whole function before running it, so the upgrade
 # may replace this file on disk while it runs.
 main() {
-  local mode=update dir=""
+  local mode=update dir="" status_exit=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --check) mode=check; shift ;;
+      --check-update) mode=check; status_exit=1; shift ;;
       --now) mode=update; shift ;;
       --dir) dir="${2:?--dir needs a folder}"; shift 2 ;;
       -h|--help) sed -n '2,19p' "$0"; return 0 ;;
@@ -92,7 +96,10 @@ main() {
   latest="$(sed -n 's/^latest=//p' <<<"$out")"
   file="$(sed -n 's/^file=//p' <<<"$out")"
   if [[ $status != update || $mode == check ]]; then
-    [[ $status == update ]] && log "Version $latest is available. Install it with: sudo $dir/deploy/linux/auto-update.sh"
+    if [[ $status == update ]]; then
+      log "Version $latest is available. Install it with: sudo $dir/deploy/linux/auto-update.sh"
+      [[ $status_exit -eq 1 ]] && return 10
+    fi
     return 0
   fi
   [[ -f "$file" ]] || die "The downloaded bundle is missing."
