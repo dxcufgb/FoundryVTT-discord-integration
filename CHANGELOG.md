@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Configuration errors no longer print the rejected values (a `FOUNDRY_URL` with a password in it ended up in the log in clear text), and `npm run register-commands` prints only Discord's status, code and message instead of the whole error object. Fixes the three CodeQL "clear-text logging of sensitive information" alerts.
 
+### Fixed
+
+- Slash commands are now updated whenever the bot is updated, by the auto-updater or by running an installer: the Linux installer, the Windows task installer (also from `setup.exe`) and the Windows zip updater register the commands of the installed version, and the bot registers them again every time it starts. A registration that fails (Discord unreachable, rate limit) is retried for a few minutes instead of waiting for the next restart, and the log says whether the commands changed. When `DISCORD_GUILD_ID` is added, changed or removed, the bot empties the set it registered before (remembered in `data/state.json` as `commands`), so the old commands no longer stay next to the new ones.
+
 ### Added
 
 - One-line Linux install shared by the bots: `curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration` (see [docs/INSTALL.md](docs/INSTALL.md#2-install-on-linux-guided-installer)).

@@ -109,6 +109,21 @@ function Invoke-SelfUpdate([string[]]$Arguments) {
   return $result
 }
 
+# Register the slash commands of the newly installed version (zip installations; setup.exe does it through
+# install-task.ps1). The bot registers them again when it starts, so a failure here is logged, not fatal.
+function Register-CommandSet {
+  try {
+    $node = Get-NodeExe
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $lines = & $node (Join-Path $InstallDir "scripts\register-commands.js") 2>&1 } finally { $ErrorActionPreference = $eap }
+    foreach ($l in $lines) { Write-UpdateLog "  $l" }
+    if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" }
+  } catch {
+    Write-UpdateLog "Registering the slash commands failed ($($_.Exception.Message)); the bot registers them again when it starts."
+  }
+}
+
 function Register-UpdateTask {
   $script = Join-Path $InstallDir "deploy\windows\auto-update.ps1"
   if (-not (Test-Path (Join-Path $InstallDir "scripts\self-update.js")) -or -not (Test-Path $script)) { throw "$InstallDir has no auto-updater (install a newer version first)." }
@@ -243,6 +258,7 @@ function Invoke-Update {
         Write-UpdateLog "Installing version $($r.latest)"
         Copy-Payload -From $src.FullName -To $InstallDir
         Restore-EnvFile $saved
+        Register-CommandSet
       } catch {
         Write-UpdateLog "Copying failed: $($_.Exception.Message)"
         Restore-PreviousVersion -Backup $backup -Version $previous -WasRunning $wasRunning

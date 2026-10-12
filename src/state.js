@@ -35,6 +35,9 @@ export function defaultState() {
     notified: {},
     // Version of the bot that last ran, to DM server admins once after an update.
     botVersion: null,
+    // Where the slash commands were last registered ({ guildId: id|null, hash, version, at }), so a
+    // changed DISCORD_GUILD_ID can remove the old set and the log can say whether they changed.
+    commands: null,
   };
 }
 
