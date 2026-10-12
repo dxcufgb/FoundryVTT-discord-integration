@@ -78,7 +78,11 @@ main() {
   PATH="$(dirname "$node"):$PATH"
 
   exec 9>"$LOCK_FILE"
-  if ! flock -n 9; then log "Another update is already running; nothing to do."; return 0; fi
+  if ! flock -n 9; then
+    # --check-update must not report "up to date" (0) without having checked.
+    if [[ $status_exit -eq 1 ]]; then printf 'ERROR: %s\n' "Another update is running right now; try --check-update again later." >&2; return 1; fi
+    log "Another update is already running; nothing to do."; return 0
+  fi
 
   WORK="$(mktemp -d /var/tmp/$SERVICE-update.XXXXXX)"
   # The work folder holds the download and the backup; it is kept when a rollback failed (the backup is then needed by hand).

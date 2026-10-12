@@ -39,6 +39,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
+      sha: ${{ steps.meta.outputs.sha }}
     steps:
       - name: Version, tag and pre-release flag
         id: meta
@@ -47,6 +48,7 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           INPUT_VERSION: ${{ inputs.version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -80,8 +82,9 @@ jobs:
             echo "version=$VERSION"
             echo "tag=$TAG"
             echo "prerelease=$PRERELEASE"
+            echo "sha=$SHA"
           } >> "$GITHUB_OUTPUT"
-          echo "Releasing $TAG (version $VERSION, pre-release: $PRERELEASE) from $EVENT"
+          echo "Releasing $TAG (version $VERSION, pre-release: $PRERELEASE) from $EVENT, commit $SHA"
 
   ci:
     name: CI
@@ -101,6 +104,8 @@ jobs:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The event's commit, not the tag ref (a tag can be moved while the release is built).
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
 
       # No dependency cache in a release job: a poisoned cache could end up in the published bundles.
@@ -142,6 +147,8 @@ jobs:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The event's commit, not the tag ref (a tag can be moved while the release is built).
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
 
       - name: Fetch the Windows payload
@@ -177,6 +184,8 @@ jobs:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The event's commit, not the tag ref (a tag can be moved while the release is built).
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
 
       - name: Fetch the archives
@@ -205,6 +214,7 @@ jobs:
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           set -euo pipefail
           # The "## [X.Y.Z]" section of CHANGELOG.md, without its link reference lines.
@@ -216,7 +226,7 @@ jobs:
           if grep -q '[^[:space:]]' notes.md; then
             echo "Notes from the CHANGELOG.md section [$VERSION]."
           else
-            gh api "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --jq .body > notes.md
+            gh api "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$SHA" --jq .body > notes.md
             echo "No CHANGELOG.md section [$VERSION]; using GitHub's generated notes."
           fi
           cat notes.md
@@ -228,6 +238,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           set -euo pipefail
           # Checked again here: this job can also see draft releases, and time has passed since prepare.
@@ -240,8 +251,27 @@ jobs:
           if [[ $n != 0 ]]; then
             echo "::error::A release (or draft) named $TAG already exists; delete the draft or pick a new version."; exit 1
           fi
+          # If anything below fails, remove what this run created, but only while it is still a draft:
+          # a published release (and its tag) is never touched. GitHub creates the tag of a draft only
+          # when it is published; a tag is deleted only if it exists now (it did not before) and points
+          # at this commit.
+          created=0
+          cleanup() {
+            [[ $created == 1 ]] || return 0
+            local id t
+            id="$(gh api --paginate "repos/$GH_REPO/releases" | jq -rs --arg t "$TAG" '[add[] | select(.tag_name == $t and .draft == true)] | .[0].id // empty')"
+            if [[ -z $id ]]; then echo "::warning::$TAG is no longer a draft; left as it is."; return 0; fi
+            gh api -X DELETE "repos/$GH_REPO/releases/$id" || return 1
+            echo "::warning::Deleted the draft release $TAG again."
+            if t="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha 2>/dev/null)" && [[ $t == "$SHA" ]]; then
+              gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG" || return 1
+              echo "::warning::Deleted the tag $TAG again."
+            fi
+          }
+          trap 'rc=$?; if [[ $rc != 0 ]]; then cleanup || echo "::error::Cleaning up the draft $TAG failed; delete it by hand."; fi; exit $rc' EXIT
           mapfile -t files < <(sed 's|^|dist/|' dist/release-files.txt)
-          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md "${files[@]}"
+          created=1
+          gh release create "$TAG" --draft --target "$SHA" --title "$TAG" --notes-file notes.md "${files[@]}"
           if [[ $PRERELEASE == true ]]; then
             gh release edit "$TAG" --draft=false --prerelease
           else
@@ -254,8 +284,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           set -euo pipefail
+          # The files were built from the event's commit; refuse if the tag was moved since.
+          ref="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG")"
+          target="$(jq -r .object.sha <<<"$ref")"
+          if [[ "$(jq -r .object.type <<<"$ref")" == tag ]]; then
+            target="$(gh api "repos/$GH_REPO/git/tags/$target" --jq .object.sha)"
+          fi
+          if [[ $target != "$SHA" ]]; then
+            echo "::error::The tag $TAG now points at $target, not at $SHA that was built; nothing was attached."; exit 1
+          fi
           mapfile -t files < <(sed 's|^|dist/|' dist/release-files.txt)
           gh release upload "$TAG" --clobber "${files[@]}"
 
