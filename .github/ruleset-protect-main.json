@@ -27,7 +27,10 @@
           { "context": "Test (Node 20, ubuntu-latest)", "integration_id": 15368 },
           { "context": "Test (Node 22, ubuntu-latest)", "integration_id": 15368 },
           { "context": "Test (Node 20, windows-latest)", "integration_id": 15368 },
-          { "context": "Test (Node 22, windows-latest)", "integration_id": 15368 }
+          { "context": "Test (Node 22, windows-latest)", "integration_id": 15368 },
+          { "context": "Release build (scripts/build-release.sh)", "integration_id": 15368 },
+          { "context": "Linux installer (systemd)", "integration_id": 15368 },
+          { "context": "Windows installer (Inno Setup)", "integration_id": 15368 }
         ]
       }
     }
