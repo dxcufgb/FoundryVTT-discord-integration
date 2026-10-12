@@ -15,7 +15,7 @@ import { SessionScheduler } from "./sessions.js";
 import { connectDiscord, createClient } from "./discord/client.js";
 import { commands } from "./discord/commands/index.js";
 import { watchGuildHealth } from "./discord/health.js";
-import { registerCommands } from "./discord/registerCommands.js";
+import { syncCommands } from "./discord/registerCommands.js";
 import { announceUpdate } from "./updateNotice.js";
 import { installedVersion } from "./selfUpdate.js";
 
@@ -109,22 +109,20 @@ async function main() {
 
   const c = connected.readyClient;
   log.info(`Logged in to Discord as ${c.user.tag} in ${c.guilds.cache.size} server(s).`);
+  let version = null;
   try {
-    await registerCommands(config, commands, { log });
-  } catch (err) {
-    log.error("Could not register slash commands:", err?.message ?? err);
+    version = installedVersion(PROJECT_ROOT);
+  } catch {
+    // no package.json version: the update notice is skipped and the registration is recorded without one
   }
+  // Every start (so every update, automatic or by hand) re-registers the slash commands of this version.
+  // Fire and forget: a failed registration is retried for a few minutes and must not hold up monitoring.
+  void syncCommands({ config, commands, state, version, log });
   // Fire and forget: DMs are sent one by one and must not hold up monitoring.
   void announceUpdate({
     client: c,
     state,
-    version: (() => {
-      try {
-        return installedVersion(PROJECT_ROOT);
-      } catch {
-        return null;
-      }
-    })(),
+    version,
     mode: connected.updateNotify,
     botDataDir: config.botDataDir,
     projectRoot: PROJECT_ROOT,

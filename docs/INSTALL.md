@@ -155,7 +155,7 @@ The bot must be able to **view** and **send messages** in each chosen channel (c
 
 ## Upgrading
 
-Run the installer for the new version (the Linux one-liner or `sudo ./install.sh` from the new archive, or the new `setup.exe`; on Linux `sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --update-now` fetches and installs the latest release). Both upgrade in place and keep the data folder, whose `state.json` remembers your channels, windows and which updates were already announced, and the settings in `.env` (they rewrite the file from the settings they know, so comments and settings the installer does not ask about are reset; [automatic updates](#automatic-updates) keep the file exactly). Or let the bot update itself: see [Automatic updates](#automatic-updates).
+Run the installer for the new version (the Linux one-liner or `sudo ./install.sh` from the new archive, or the new `setup.exe`; on Linux `sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --update-now` fetches and installs the latest release). Both upgrade in place, register the slash commands of the new version (the bot does so again when it starts) and keep the data folder, whose `state.json` remembers your channels, windows and which updates were already announced, and the settings in `.env` (they rewrite the file from the settings they know, so comments and settings the installer does not ask about are reset; [automatic updates](#automatic-updates) keep the file exactly). Or let the bot update itself: see [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
@@ -212,7 +212,7 @@ When the bot starts on a newer version than it ran before (after an automatic or
 
 ## Troubleshooting
 
-- **Slash commands do not appear**: global commands can take up to an hour. Set `DISCORD_GUILD_ID` for instant registration, or run `node scripts/register-commands.js`. The bot must have been invited with the `applications.commands` scope.
+- **Slash commands do not appear, or are the old ones after an update**: the installers register the commands of the installed version, and the bot registers them again every time it starts (a failure is retried for a few minutes; see the log). Global commands (no `DISCORD_GUILD_ID`) can take up to an hour to change, and Discord clients keep the old list until they are restarted (Ctrl+R on desktop, or close and reopen the app). Set `DISCORD_GUILD_ID` for instant registration, or run `node scripts/register-commands.js` by hand. When `DISCORD_GUILD_ID` is added, changed or removed, the bot empties the set it registered before (remembered in `data/state.json`), so the old commands do not stay next to the new ones. The bot must have been invited with the `applications.commands` scope.
 - **"Only server administrators can use this command"**: configuration commands require the *Administrator* permission in that server.
 - **Foundry shows as down but is running**: check `FOUNDRY_URL`. Use the local address (`http://localhost:30000`), not a public hostname behind a proxy that might need authentication. `curl http://localhost:30000/api/status` should return JSON.
 - **No update messages**: `FOUNDRY_DATA_PATH` must point at the user data folder and be readable by the user the bot runs as. `/updates list` shows what the bot sees. The first scan is silent on purpose.

@@ -488,6 +488,15 @@ if ! curl -fsS -m 5 "${FOUNDRY_URL%/}/api/status" >/dev/null 2>&1; then
   ask_yn "Continue anyway?" y || die "Stopped. Check FOUNDRY_URL and run the installer again."
 fi
 
+# The slash commands of this version. The bot registers them again every time it starts, so a failure here
+# (Discord unreachable, rate limit) is not fatal; it just means they appear at the next start instead.
+step "Registering the slash commands"
+if (cd "$INSTALL_DIR" && sudo -u "$RUN_USER" "$NODE" scripts/register-commands.js); then
+  ok "Slash commands registered"
+else
+  warn "Registering the slash commands failed; the bot registers them again when it starts (or run: cd $INSTALL_DIR && sudo -u $RUN_USER $NODE scripts/register-commands.js)."
+fi
+
 # --- 6. systemd ----------------------------------------------------------------------------------------------------
 step "Installing the systemd service"
 sed -e "s|__USER__|$RUN_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__NODE__|$NODE|g" \

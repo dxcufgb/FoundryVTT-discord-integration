@@ -81,6 +81,15 @@ try {
     } finally { Pop-Location }
   }
 
+  # The slash commands of this version. The bot registers them again every time it starts, so a failure here
+  # (Discord unreachable, rate limit) is not fatal; they then appear at the next start instead.
+  Write-Output "Registering the slash commands"
+  Push-Location $InstallDir
+  try {
+    if ($EnvFile) { & $node scripts\register-commands.js --env $EnvFile } else { & $node scripts\register-commands.js }
+    if ($LASTEXITCODE -ne 0) { Write-Output "WARNING: registering the slash commands failed; the bot registers them again when it starts." }
+  } finally { Pop-Location }
+
   # The task is defined as XML: that is the one reliable way to get "no execution
   # time limit" (PT0S) together with restart-on-failure, and it needs no cmdlet quirks.
   $esc = { param($s) [System.Security.SecurityElement]::Escape($s) }
