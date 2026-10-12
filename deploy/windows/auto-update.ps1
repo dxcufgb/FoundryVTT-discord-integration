@@ -111,7 +111,7 @@ function Invoke-SelfUpdate([string[]]$Arguments) {
 
 # Register the slash commands of the newly installed version (zip installations; setup.exe does it through
 # install-task.ps1). The bot registers them again when it starts, so a failure here is logged, not fatal.
-function Register-Commands {
+function Register-CommandSet {
   try {
     $node = Get-NodeExe
     $eap = $ErrorActionPreference
@@ -258,7 +258,7 @@ function Invoke-Update {
         Write-UpdateLog "Installing version $($r.latest)"
         Copy-Payload -From $src.FullName -To $InstallDir
         Restore-EnvFile $saved
-        Register-Commands
+        Register-CommandSet
       } catch {
         Write-UpdateLog "Copying failed: $($_.Exception.Message)"
         Restore-PreviousVersion -Backup $backup -Version $previous -WasRunning $wasRunning
