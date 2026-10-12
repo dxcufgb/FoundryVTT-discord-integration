@@ -17,12 +17,16 @@ const APP = "foundryvtt-discord-integration";
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 
-/** Release asset and checksum file per install flavour. */
+/** Release asset per install flavour (<app>-X.Y.Z-<suffix>), always verified with SHA256SUMS.txt. */
 export const PLATFORMS = Object.freeze({
-  linux: { suffix: "linux.tar.gz", sums: "SHA256SUMS.txt" },
-  "windows-zip": { suffix: "windows.zip", sums: "SHA256SUMS.txt" },
-  "windows-setup": { suffix: "setup.exe", sums: "SHA256SUMS-setup.txt" },
+  linux: { suffix: "linux.tar.gz" },
+  "windows-zip": { suffix: "windows.zip" },
+  "windows-setup": { suffix: "setup.exe" },
 });
+export const CHECKSUM_FILE = "SHA256SUMS.txt";
+// Releases up to v1.3.2 list the setup.exe only in SHA256SUMS-setup.txt. Used when SHA256SUMS.txt has no
+// line for the setup.exe; remove once no release without it can be the latest (any release after v1.3.2 has it).
+const LEGACY_CHECKSUM_FILES = Object.freeze({ "windows-setup": "SHA256SUMS-setup.txt" });
 
 const SEMVER_RE = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -64,7 +68,10 @@ export function parseChecksums(text) {
   return sums;
 }
 
-/** Bundle and checksum assets of a release for a platform, or an error message. */
+/**
+ * Bundle and checksum assets of a release for a platform, or an error message. `sums` lists the checksum
+ * files to look in, in order: SHA256SUMS.txt, then the platform's legacy file (older releases).
+ */
 export function selectAssets(release, platform) {
   const p = PLATFORMS[platform];
   if (!p) throw new Error(`Unknown platform '${platform}' (one of ${Object.keys(PLATFORMS).join(", ")})`);
@@ -72,9 +79,10 @@ export function selectAssets(release, platform) {
   const assets = Array.isArray(release.assets) ? release.assets : [];
   const name = `${APP}-${version}-${p.suffix}`;
   const asset = assets.find((a) => a.name === name);
-  const sums = assets.find((a) => a.name === p.sums);
+  const sumNames = [CHECKSUM_FILE, LEGACY_CHECKSUM_FILES[platform]].filter(Boolean);
+  const sums = sumNames.map((n) => assets.find((a) => a.name === n)).filter(Boolean);
   if (!asset) return { error: `release ${release.tag_name} has no ${name}` };
-  if (!sums) return { error: `release ${release.tag_name} publishes no ${p.sums}, so ${name} cannot be verified` };
+  if (!sums.length) return { error: `release ${release.tag_name} publishes no ${sumNames.join(" or ")}, so ${name} cannot be verified` };
   return { asset, sums };
 }
 
@@ -191,8 +199,12 @@ export async function runUpdate({ dir, platform, outDir, checkOnly = false, repo
   const picked = selectAssets(release, platform);
   if (picked.error) throw new Error(picked.error);
   if (checkOnly) return { ...summary, asset: picked.asset.name };
-  const expected = parseChecksums(await fetchText(picked.sums, { fetchImpl, token })).get(picked.asset.name);
-  if (!expected) throw new Error(`${picked.sums.name} has no entry for ${picked.asset.name}`);
+  let expected;
+  for (const sums of picked.sums) {
+    expected = parseChecksums(await fetchText(sums, { fetchImpl, token })).get(picked.asset.name);
+    if (expected) break;
+  }
+  if (!expected) throw new Error(`${picked.sums.map((a) => a.name).join(" / ")} has no entry for ${picked.asset.name}`);
   const file = path.join(outDir, picked.asset.name);
   log.info(`Downloading ${picked.asset.name}`);
   const { sha256, size } = await downloadAsset(picked.asset, file, { fetchImpl, token });

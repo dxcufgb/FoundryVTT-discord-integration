@@ -40,19 +40,50 @@ Everything is configured from Discord with slash commands. Configuration command
 
 Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**; also turn on **Server Members Intent** under *Bot → Privileged Gateway Intents* so update notices reach every server Administrator, otherwise the bot logs a warning and sends them to server owners only):
 
-**Linux** (on the machine that runs Foundry):
+### Install on Linux
+
+On the machine that runs Foundry:
 
 ```
-curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration
 ```
 
-The guided installer checks for Node.js, finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, and installs a systemd service. It also has a `--non-interactive` mode for scripted installs.
+or download `foundryvtt-discord-integration-linux.tar.gz` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest), then:
 
-**Windows:** download `foundryvtt-discord-integration-<version>-setup.exe` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard installs Node.js if needed, asks the same questions and registers a Scheduled Task that runs the bot at boot. Silent installs take the answers as `/DiscordToken=… /ClientId=…` parameters.
+```
+tar xzf foundryvtt-discord-integration-linux.tar.gz
+cd foundryvtt-discord-integration-X.Y.Z
+sudo ./install.sh
+```
 
-**Automatic updates** (opt-in, off by default): both installers offer to check GitHub once a day and install a newer release the same way as a manual upgrade, keeping `.env` and the data folder. Linux and Windows zip installs roll back if the update fails; a Windows `setup.exe` update only undoes its own changes if setup itself fails. Turn it on or off later with `sudo …/deploy/linux/install.sh --enable-auto-update` / `--disable-auto-update` or `deploy\windows\auto-update.ps1 -Enable` / `-Disable`; see [Automatic updates](docs/INSTALL.md#automatic-updates).
+(The older one-liner `curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash` still works too.)
 
-Then, in Discord, run `/channel set type:default` in the channel where messages should go, and fine-tune with the commands below.
+The guided installer checks for Node.js, finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, and installs a systemd service. Options (`sudo ./install.sh --help` lists them all; with the one-liner put them after the slug, e.g. `… | sudo bash -s foundryvtt-discord-integration --check-update`):
+
+| Option | Meaning |
+| --- | --- |
+| (none) | install or upgrade in place, interactive (asks for what it needs) |
+| `--yes`, `-y` | non-interactive: no questions; missing required settings → clear error |
+| `--auto-update` / `--no-auto-update` | turn automatic updates on / off as part of this install |
+| `--enable-auto-update` / `--disable-auto-update` | turn them on / off on an existing install, nothing else |
+| `--check-update` | only check: exit 0 = up to date, 10 = newer release available, other = error |
+| `--update-now` | install the latest release now (same path as the daily updater) |
+| `--uninstall` [`--purge`] | remove (keep / also delete settings and data) |
+| `--help` | usage listing exactly these first, then the bot's own options |
+
+The bot's own options: `--token`, `--client-id`, `--guild-id`, `--data-path`, `--app-path`, `--url`, `--user`, `--dir`, `--timezone`, `--interval`, `--no-start`, `--version` and `--non-interactive` (same as `--yes`); see [docs/INSTALL.md](docs/INSTALL.md#2-install-on-linux-guided-installer).
+
+### Install on Windows
+
+Download `foundryvtt-discord-integration-setup.exe` (the same file as `foundryvtt-discord-integration-<version>-setup.exe`) from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard installs Node.js if needed, asks the same questions and registers a Scheduled Task that runs the bot at boot. Silent installs take the answers as `/DiscordToken=… /ClientId=…` parameters.
+
+### Automatic updates
+
+Opt-in, off by default: both installers offer to check GitHub once a day and install a newer release the same way as a manual upgrade, keeping `.env` and the data folder. Linux and Windows zip installs roll back if the update fails; a Windows `setup.exe` update only undoes its own changes if setup itself fails. Turn it on or off later with `sudo …/install.sh --enable-auto-update` / `--disable-auto-update` or `deploy\windows\auto-update.ps1 -Enable` / `-Disable`; see [Automatic updates](docs/INSTALL.md#automatic-updates).
+
+### After installing
+
+In Discord, run `/channel set type:default` in the channel where messages should go, and fine-tune with the commands below.
 
 Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `npm start`.
 
@@ -117,7 +148,9 @@ npm start           # run the bot with the .env in this folder
 
 Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, the LevelDB reader (against databases written by Foundry's own LevelDB binding, see `scripts/make-leveldb-fixtures.js`), world/module usage, the compatibility and update logic (with a fake foundryvtt.com), campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings), and the self-updater's release check (semantic version order, asset choice, checksum parsing and verification, the token staying on api.github.com, with a fake GitHub). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd (including an automatic update to the latest release through the systemd timer's service), and compiles, silently installs, auto-updates and uninstalls the Windows setup.
 
-Releases: see **[docs/RELEASING.md](docs/RELEASING.md)**.
+### Releasing
+
+**Actions → Release → Run workflow → type the version** (e.g. `1.2.3`; `1.2.3-rc.1` makes a pre-release). Fallback: publish a release `vX.Y.Z` on GitHub, the files are attached afterwards. No version bump in the code: the version comes from the tag. Details: **[docs/RELEASING.md](docs/RELEASING.md)**.
 
 ## License
 

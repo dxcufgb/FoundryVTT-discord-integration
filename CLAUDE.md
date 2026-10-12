@@ -21,7 +21,8 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - `src/campaigns.js`, `src/sessions.js`, `src/restartWindow.js` — domain logic.
 - `src/updateNotice.js` — after a bot update, DM the changelog to server admins once. `UPDATE_NOTIFY` = `admins` (default, needs the Server Members intent) / `owner` / `off`; `connectDiscord` in `src/discord/client.js` falls back to `owner` when Discord refuses the intent.
 - `src/selfUpdate.js` + `scripts/self-update.js` — opt-in auto-update (release check, download, SHA-256); `deploy/linux/auto-update.sh` (root, `foundryvtt-discord-bot-update.timer`) and `deploy/windows/auto-update.ps1` (SYSTEM, daily task) install it and roll back on failure.
-- `deploy/` — Linux (systemd) and Windows (Task Scheduler, Inno Setup) installers.
+- `deploy/` — Linux (systemd) and Windows (Task Scheduler, Inno Setup) installers. `deploy/linux/archive-install.sh` becomes `install.sh` at the top of the Linux archive and runs `deploy/linux/install.sh`.
+- `scripts/build-release.sh` — builds the release files (`build`, then `finalize` once the setup.exe exists) with the version stamped from the tag; its `LEGACY_ASSETS` block keeps the old file names that running updaters look for.
 - `docs/` — `COMMANDS.md`, `INSTALL.md`, `RELEASING.md`.
 
 ## Conventions
@@ -37,4 +38,6 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 
 - Any new or changed command or option: update `docs/COMMANDS.md`.
 - Any user-visible change: add an entry under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog format).
-- Releases follow `docs/RELEASING.md`; `main` is protected, so changes go through pull requests.
+- Releasing: Actions → Release → Run workflow → type the version. Fallback: publish a release `vX.Y.Z` on GitHub, files are attached afterwards. No version bump in the code (the repository's `package.json` version is not the release version). Details in `docs/RELEASING.md`; `main` is protected, so changes go through pull requests.
+- Install on Linux: `curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration`, or download `foundryvtt-discord-integration-linux.tar.gz`, `tar xzf`, `cd foundryvtt-discord-integration-X.Y.Z`, `sudo ./install.sh`. The installer's common options (`--yes`, `--auto-update`/`--no-auto-update`, `--enable-auto-update`/`--disable-auto-update`, `--check-update`, `--update-now`, `--uninstall [--purge]`, `--help`) are shared with the other bots; keep them and every existing option working.
+- Release file names are fixed (see `docs/RELEASING.md`); installations look for them, so never rename a release file without keeping the old name in `LEGACY_ASSETS`.

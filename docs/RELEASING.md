@@ -1,40 +1,46 @@
 # Releasing
 
-Releases are built by GitHub Actions ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) when a **version tag** (`vX.Y.Z`) is pushed, which also happens when a GitHub Release is published with a new tag. The workflow runs the tests, stamps the version from the tag into `package.json`, installs production dependencies, creates the GitHub Release if it does not exist yet (notes taken from the matching `CHANGELOG.md` section) and attaches:
-
-- `foundryvtt-discord-integration-<version>-linux.tar.gz` — bot + dependencies + `deploy/linux` (interactive installer, systemd unit)
-- `install.sh` — the Linux installer on its own, for `curl -fsSL …/releases/latest/download/install.sh | sudo bash` (it downloads the bundle)
-- `foundryvtt-discord-integration-<version>-windows.zip` — bot + dependencies + `deploy/windows` (Task Scheduler scripts)
-- `foundryvtt-discord-integration-<version>-setup.exe` — Windows installer built with Inno Setup from `deploy/windows/installer.iss` (a second job on a Windows runner)
-- `SHA256SUMS.txt` and `SHA256SUMS-setup.txt`
-
-Installations with [automatic updates](INSTALL.md#automatic-updates) turned on pick up the release within a day: they look for exactly these asset names (`foundryvtt-discord-integration-<version>-linux.tar.gz`, `-windows.zip`, `-setup.exe`) and refuse a bundle that has no matching line in `SHA256SUMS.txt` / `SHA256SUMS-setup.txt`, so keep the names and the checksum files. Only full releases with a plain `vX.Y.Z` tag are installed automatically; pre-releases are not. Note that the `setup.exe` is attached by a second job a few minutes after the release is created, so a Windows check in that window logs that the release has no setup.exe yet and tries again the next day.
-
-The bundles contain no native code, so one build serves both platforms. The Node.js version the Windows installer downloads when none is present is the `NodeVersion` define at the top of `installer.iss`; bump it now and then to the current LTS.
+**Actions → Release → Run workflow → type the version** (e.g. `1.2.3`; a leading `v` is stripped, `1.2.3-rc.1` makes a pre-release). Fallback: publish a release `vX.Y.Z` on GitHub, the files are attached afterwards. No version bump in the code: the version comes from the tag.
 
 ## Procedure
 
-1. Make sure `main` is green (the **CI** workflow runs the tests on Linux and Windows, Node 20 and 22).
-2. Add a section for the new version to [`CHANGELOG.md`](../CHANGELOG.md) and merge it via a pull request (`main` is protected: one approving review, no force pushes).
-3. Tag `main` and push the tag (semantic versioning: patch for fixes, minor for new commands/features, major for breaking changes such as changed `.env` variables or state format):
+1. Make sure `main` is green (the **CI** workflow runs the tests on Linux and Windows, Node 20 and 22, and the real Linux and Windows installers).
+2. Optional but recommended: rename `## [Unreleased]` in [`CHANGELOG.md`](../CHANGELOG.md) to `## [X.Y.Z] - <date>` (and start a new empty `## [Unreleased]`) in a pull request (`main` is protected: one approving review, no force pushes). That section becomes the release notes; without one, GitHub's generated notes (the merged pull requests) are used.
+3. **Actions → Release → Run workflow**, branch `main`, type the version `X.Y.Z` (semantic versioning: patch for fixes, minor for new commands/features, major for breaking changes such as changed `.env` variables or state format).
 
-   ```
-   git checkout main && git pull
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
+The [Release workflow](../.github/workflows/release.yml) then
 
-   Within a couple of minutes the *Release bot* workflow creates the release `vX.Y.Z` with the changelog section as notes and attaches the bundles. Check the Actions tab if they are missing.
+1. checks the version (`X.Y.Z` or `X.Y.Z-pre.N`), that it runs on `main`, and that neither the tag `vX.Y.Z` nor a release (draft included) of that name exists;
+2. runs the full CI (the same `ci.yml`: tests, the Linux installer against a real systemd, the Windows setup.exe installed, auto-updated and uninstalled);
+3. builds every file with the version stamped from the tag ([`scripts/build-release.sh`](../scripts/build-release.sh); the setup.exe with Inno Setup on a Windows runner);
+4. creates a **draft** release `vX.Y.Z` on the workflow's commit with all files attached and the notes, and only then publishes it (as a pre-release when the version has a `-` part, otherwise as the latest release). If any job fails, nothing is published and no tag is created.
 
-   Or, without a local checkout: **Actions → Release bot → Run workflow**, branch `main`, enter the tag `vX.Y.Z`. The workflow creates the tag and the release.
+**Fallback, by hand:** create the release on GitHub (**Releases → Draft a new release**, new tag `vX.Y.Z` on `main`, title `vX.Y.Z`, your notes, **Publish**). Publishing triggers the same workflow, which builds everything from the tag and attaches the files to that release afterwards (its notes are kept). Until the files are attached (a few minutes) an installation's automatic update finds no files on the release and simply tries again the next day.
 
-   Alternatively create the release on GitHub (**Releases → Draft a new release**, tag `vX.Y.Z` from `main`, title `vX.Y.Z`, your notes, **Publish**) or with the [GitHub CLI](https://cli.github.com) (`gh release create vX.Y.Z --title vX.Y.Z --notes-file <notes.md>`); the tag that GitHub creates triggers the same workflow, which then keeps your notes and only attaches the bundles.
+## Release files
+
+For version `X.Y.Z`:
+
+| File | What |
+| --- | --- |
+| `foundryvtt-discord-integration-X.Y.Z-linux.tar.gz` | Linux archive: one top folder `foundryvtt-discord-integration-X.Y.Z/` with `install.sh` at its top (bot, production dependencies, `deploy/linux`) |
+| `foundryvtt-discord-integration-X.Y.Z-windows.zip` | Windows archive (bot, production dependencies, `deploy/windows` with the Task Scheduler scripts) |
+| `foundryvtt-discord-integration-X.Y.Z-setup.exe` | Windows setup wizard (Inno Setup, [`deploy/windows/installer.iss`](../deploy/windows/installer.iss)) |
+| `foundryvtt-discord-integration-linux.tar.gz`, `foundryvtt-discord-integration-windows.zip`, `foundryvtt-discord-integration-setup.exe` | the same three under fixed names, so `releases/latest/download/<name>` links never change |
+| `install.sh` | the Linux installer alone, for `curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh \| sudo bash` (it downloads and verifies the archive) |
+| `SHA256SUMS.txt` | `sha256sum` lines (`<hex>  <name>`) for every other file of the release, legacy ones included |
+| `SHA256SUMS-setup.txt` | legacy: the setup.exe's checksum in the old file, for installations up to v1.3.2 (see below) |
+
+The same commit and version always give byte-identical `.tar.gz` and `.zip` files. Build them locally with `scripts/build-release.sh build dist X.Y.Z` (and `finalize` once `dist/…-setup.exe` is there).
+
+**Automatic updates** (see [INSTALL.md](INSTALL.md#automatic-updates)) install only full releases with a plain `vX.Y.Z` tag, never pre-releases or drafts. They look for `foundryvtt-discord-integration-X.Y.Z-linux.tar.gz`, `-windows.zip` or `-setup.exe` and refuse a file without a matching line in `SHA256SUMS.txt`. Installations up to v1.3.2 verify the setup.exe with `SHA256SUMS-setup.txt` instead, so that file is still attached (the `LEGACY_ASSETS` block in `scripts/build-release.sh`); it can be dropped once every Windows setup.exe installation runs a newer version. Newer updaters fall back to `SHA256SUMS-setup.txt` only when `SHA256SUMS.txt` has no line for the setup.exe (releases up to v1.3.2).
+
+The bundles contain no native code, so one build serves both platforms. The Node.js version the Windows installer downloads when none is present is the `NodeVersion` define at the top of `installer.iss`; bump it now and then to the current LTS.
 
 ## Versioning notes
 
-- `package.json` in the repository stays at the current release version and is updated by the workflow for the bundle, so a tag is the single source of truth for a release's version.
-- Bumping `package.json` in the repository to match after a release is nice but not required.
-- Pre-releases: tick *Set as a pre-release* on GitHub; the workflow builds them the same way, and the `/releases/latest` link keeps pointing at the last full release.
+- The version of a release is its tag. The build stamps it into the bundles' `package.json` and `package-lock.json` (which is what an installation reports, compares for updates and announces); the repository's own `package.json` is not changed and does not need to match.
+- Pre-releases (`X.Y.Z-rc.1`) are published as pre-releases; the `/releases/latest` link keeps pointing at the last full release.
 
 ## Repository setup
 

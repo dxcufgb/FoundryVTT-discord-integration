@@ -1,21 +1,24 @@
-# Runs on every push and pull request:
+# Runs on every push and pull request, and as part of the Release workflow (workflow_call):
 #   - unit tests on Linux and Windows, Node 20 and 22
 #   - the Linux installer end to end (non-interactive, real systemd unit, auto-update from the
 #     latest GitHub release through the real systemd units, then uninstall)
 #   - the Windows installer: compiled with Inno Setup, installed silently with auto-update on,
 #     updated to the latest GitHub release by auto-update.ps1, checked, uninstalled
+#   - the release build (scripts/build-release.sh): file names, checksums, reproducibility
 name: CI
 
 on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
+# github.workflow keeps a run called by Release apart from the push run of the same ref.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,6 +44,46 @@ jobs:
       - name: Entry point and scripts parse
         run: node --check src/index.js && node --check scripts/register-commands.js && node --check scripts/check-config.js && node --check scripts/self-update.js
 
+  release-build:
+    name: Release build (scripts/build-release.sh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Build version 9.9.9 twice (reproducible) and finalize with a stand-in setup.exe
+        run: |
+          set -euo pipefail
+          shellcheck scripts/build-release.sh
+          scripts/build-release.sh build "$RUNNER_TEMP/a" 9.9.9
+          scripts/build-release.sh build "$RUNNER_TEMP/b" v9.9.9
+          (cd "$RUNNER_TEMP/a" && sha256sum ./*.tar.gz ./*.zip) > "$RUNNER_TEMP/a.sums"
+          (cd "$RUNNER_TEMP/b" && sha256sum ./*.tar.gz ./*.zip) > "$RUNNER_TEMP/b.sums"
+          diff "$RUNNER_TEMP/a.sums" "$RUNNER_TEMP/b.sums"
+          echo "stand-in" > "$RUNNER_TEMP/a/foundryvtt-discord-integration-9.9.9-setup.exe"
+          scripts/build-release.sh finalize "$RUNNER_TEMP/a" 9.9.9
+          cd "$RUNNER_TEMP/a"
+          sha256sum -c SHA256SUMS.txt
+          sha256sum -c SHA256SUMS-setup.txt
+          for f in foundryvtt-discord-integration-9.9.9-linux.tar.gz foundryvtt-discord-integration-9.9.9-windows.zip foundryvtt-discord-integration-9.9.9-setup.exe \
+                   foundryvtt-discord-integration-linux.tar.gz foundryvtt-discord-integration-windows.zip foundryvtt-discord-integration-setup.exe \
+                   install.sh SHA256SUMS-setup.txt SHA256SUMS.txt; do
+            grep -qxF "$f" release-files.txt
+          done
+          test "$(wc -l < release-files.txt)" = 9
+          tar -xzf foundryvtt-discord-integration-9.9.9-linux.tar.gz
+          test "$(tar -tzf foundryvtt-discord-integration-9.9.9-linux.tar.gz | cut -d/ -f1 | sort -u)" = foundryvtt-discord-integration-9.9.9
+          test -x foundryvtt-discord-integration-9.9.9/install.sh
+          grep -q '"version": "9.9.9"' foundryvtt-discord-integration-9.9.9/package.json
+          test -d foundryvtt-discord-integration-9.9.9/node_modules/discord.js
+          foundryvtt-discord-integration-9.9.9/install.sh --help | grep -q -- '--check-update'
+          unzip -p foundryvtt-discord-integration-9.9.9-windows.zip foundryvtt-discord-integration-9.9.9/package.json | grep -q '"version": "9.9.9"'
+
   linux-installer:
     name: Linux installer (systemd)
     runs-on: ubuntu-latest
@@ -54,7 +97,8 @@ jobs:
           node-version: 22
       - name: Shell syntax and shellcheck
         run: |
-          bash -n deploy/linux/install.sh && bash -n deploy/linux/auto-update.sh
+          bash -n deploy/linux/install.sh && bash -n deploy/linux/auto-update.sh && bash -n deploy/linux/archive-install.sh
+          ./deploy/linux/install.sh --help
           shellcheck --version
           shellcheck -f gcc deploy/linux/*.sh | sed -E 's/^([^:]+):([0-9]+):([0-9]+): (.*)$/::error file=\1,line=\2,col=\3::\4/'
           shellcheck deploy/linux/*.sh
@@ -130,6 +174,9 @@ jobs:
           echo marker | sudo tee "$D/data/marker" >/dev/null
           BEFORE="$(sudo sha256sum "$D/.env")"
           sudo "$D/deploy/linux/auto-update.sh" --check
+          # The build under test is older than the latest release: --check-update exits with 10.
+          rc=0; sudo ./deploy/linux/install.sh --check-update || rc=$?
+          test "$rc" = 10
           sudo systemctl start foundryvtt-discord-bot-update.service || { sudo journalctl -u foundryvtt-discord-bot-update --no-pager | tail -n 60; exit 1; }
           sudo journalctl -u foundryvtt-discord-bot-update --no-pager | tail -n 30
           sudo journalctl -u foundryvtt-discord-bot-update --no-pager | grep -q 'Updated to version'
@@ -142,6 +189,8 @@ jobs:
           # Nothing newer now: a second run is a no-op.
           sudo systemctl start foundryvtt-discord-bot-update.service
           sudo journalctl -u foundryvtt-discord-bot-update --no-pager | tail -n 3 | grep -q 'Up to date'
+          sudo ./deploy/linux/install.sh --check-update
+          sudo ./deploy/linux/install.sh --update-now 2>&1 | tee /dev/stderr | grep -q 'Up to date'
       - name: Turn auto-update off and on again
         run: |
           sudo ./deploy/linux/install.sh --disable-auto-update

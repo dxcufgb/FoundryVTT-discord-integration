@@ -19,18 +19,57 @@ https://discord.com/oauth2/authorize?client_id=<APPLICATION ID>&scope=bot+applic
 
 ## 2. Install on Linux (guided installer)
 
-On the machine that runs Foundry, run the installer. It downloads the latest release, checks for Node.js 20+ (and offers to install it), finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, writes the configuration, and installs and starts a systemd service:
+On the machine that runs Foundry, run the installer. It checks for Node.js 20+ (and offers to install it), finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, writes the configuration, and installs and starts a systemd service.
+
+**Install on Linux**:
 
 ```
-curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration
 ```
 
-Press Enter to accept a suggested value in `[brackets]`. If you downloaded the Linux bundle instead, extract it and run `sudo ./deploy/linux/install.sh` from the extracted folder; the questions are the same.
+or download `foundryvtt-discord-integration-linux.tar.gz` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest), then:
+
+```
+tar xzf foundryvtt-discord-integration-linux.tar.gz
+cd foundryvtt-discord-integration-X.Y.Z
+sudo ./install.sh
+```
+
+The one-liner downloads `foundryvtt-discord-integration-<version>-linux.tar.gz` from the latest release, checks it against the release's `SHA256SUMS.txt`, extracts it and runs its `install.sh` with your options. The older one-liner, `curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash`, still works and now checks the bundle's SHA-256 too. `install.sh` at the top of the archive runs `deploy/linux/install.sh`; both take the same options.
+
+Press Enter to accept a suggested value in `[brackets]`.
+
+| Option | Meaning |
+| --- | --- |
+| (none) | install or upgrade in place, interactive (asks for what it needs) |
+| `--yes`, `-y` | non-interactive: no questions; missing required settings → clear error |
+| `--auto-update` / `--no-auto-update` | turn automatic updates on / off as part of this install |
+| `--enable-auto-update` / `--disable-auto-update` | turn them on / off on an existing install, nothing else |
+| `--check-update` | only check: exit 0 = up to date, 10 = newer release available, other = error |
+| `--update-now` | install the latest release now (same path as the daily updater) |
+| `--uninstall` [`--purge`] | remove (keep / also delete settings and data) |
+| `--help` | usage listing exactly these first, then the bot's own options |
+
+The bot's own options:
+
+| Option | Meaning |
+| --- | --- |
+| `--non-interactive` | same as `--yes` |
+| `--token <bot token>`, `--client-id <id>` | Discord bot token and application ID (required for a new install with `--yes`) |
+| `--guild-id <id>` | Discord server ID: slash commands appear there at once (optional) |
+| `--data-path <folder>` | Foundry's user data folder (contains `Config`, `Data`, `Logs`) |
+| `--app-path <folder>` | Foundry's install folder (optional) |
+| `--url <url>` | Foundry URL as seen from this machine (default `http://localhost:30000`) |
+| `--user <name>` | Linux account the bot runs as (default: the account running Foundry) |
+| `--dir <folder>` | install folder (default `/opt/foundryvtt-discord-integration`) |
+| `--timezone <IANA name>`, `--interval <seconds>` | timezone for restart windows; how often Foundry is checked (default 30) |
+| `--no-start` | do not start the service after installing |
+| `--version <tag>` | with the older one-liner (`install.sh` alone): install that release instead of the latest |
 
 Unattended installs (scripts, Ansible, CI) pass everything on the command line:
 
 ```
-sudo ./deploy/linux/install.sh --non-interactive --token <bot token> --client-id <application id> \
+sudo ./install.sh --yes --token <bot token> --client-id <application id> \
   --data-path /home/foundry/foundrydata --user foundry [--guild-id <server id>] \
   [--url http://localhost:30000] [--timezone Europe/Stockholm] [--interval 30] [--no-start] [--auto-update]
 ```
@@ -116,7 +155,7 @@ The bot must be able to **view** and **send messages** in each chosen channel (c
 
 ## Upgrading
 
-Run the installer for the new version (the Linux one-liner, or the new `setup.exe`). Both upgrade in place and keep the data folder, whose `state.json` remembers your channels, windows and which updates were already announced, and the settings in `.env` (they rewrite the file from the settings they know, so comments and settings the installer does not ask about are reset; [automatic updates](#automatic-updates) keep the file exactly). Or let the bot update itself: see [Automatic updates](#automatic-updates).
+Run the installer for the new version (the Linux one-liner or `sudo ./install.sh` from the new archive, or the new `setup.exe`; on Linux `sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --update-now` fetches and installs the latest release). Both upgrade in place and keep the data folder, whose `state.json` remembers your channels, windows and which updates were already announced, and the settings in `.env` (they rewrite the file from the settings they know, so comments and settings the installer does not ask about are reset; [automatic updates](#automatic-updates) keep the file exactly). Or let the bot update itself: see [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
@@ -125,7 +164,7 @@ Off by default. When turned on, the machine checks GitHub once a day for a newer
 Each run:
 
 1. asks `https://api.github.com/repos/dxcufgb/FoundryVTT-discord-integration/releases/latest` for the latest release and compares its version with the installed one (semantic versioning);
-2. downloads the bundle for this platform (`-linux.tar.gz`, `-setup.exe`, or `-windows.zip` for an installation made from the zip) and checks its SHA-256 against the release's `SHA256SUMS.txt` / `SHA256SUMS-setup.txt` (no checksum, no update);
+2. downloads the bundle for this platform (`foundryvtt-discord-integration-<version>-linux.tar.gz`, `-setup.exe`, or `-windows.zip` for an installation made from the zip) and checks its SHA-256 against the release's `SHA256SUMS.txt` (no checksum, no update; for a `setup.exe` from a release up to v1.3.2, which listed it only in `SHA256SUMS-setup.txt`, that file is used);
 3. installs it with the release's own installer (`install.sh --non-interactive --no-start` on Linux, `setup.exe /VERYSILENT` on Windows; a zip installation gets the new files copied over the old ones);
 4. puts `.env` back exactly as it was (the installers rewrite it from the settings they know, so comments and extra settings would otherwise be lost); `data/` is never touched;
 5. restarts the bot. If the installer fails, or the bot was running before and does not stay up afterwards, the previous version is restored (Linux and zip installations; a failed `setup.exe` undoes its own changes). The rollback is checked as well: every restore step must succeed and, if the bot was running before, it must be running again 15 seconds after the restore. Otherwise the log says `ROLLBACK FAILED: <version> could not be restored; …` with the steps to recover by hand, and the update exits with an error. The backup is then kept instead of deleted (Linux: `/var/tmp/foundryvtt-discord-bot-update.*/` with `backup.tar`, `env.bak` and `unit.bak`; Windows, zip installations: the `backup` folder inside `fvtt-discord-update-*` in the temp folder of the account that ran the update, for the SYSTEM task usually `C:\Windows\SystemTemp` or `C:\Windows\Temp`); the log prints the exact path. Delete it once the bot runs again. Re-running the installer of the previous release (`install.sh` from its `-linux.tar.gz`, or its `setup.exe`/zip) also restores it; `.env` and `data/` are kept.
@@ -137,8 +176,9 @@ Only one update runs at a time, every request uses HTTPS with a timeout, and not
 ```
 sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --enable-auto-update     # turn on
 sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --disable-auto-update    # turn off
-sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh --check              # is there a newer release?
-sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh                      # update now
+sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --check-update         # is there a newer release? (exit 10 = yes)
+sudo /opt/foundryvtt-discord-integration/deploy/linux/install.sh --update-now           # update now
+sudo /opt/foundryvtt-discord-integration/deploy/linux/auto-update.sh --check              # the same check, always exit 0
 sudo systemctl start foundryvtt-discord-bot-update                                        # update now, as the timer does
 sudo journalctl -u foundryvtt-discord-bot-update                                          # what it did
 systemctl list-timers foundryvtt-discord-bot-update.timer                                 # when it runs next
@@ -162,7 +202,7 @@ Or answer *yes* to the installer's question, or pass `--auto-update` (`--no-auto
 
 The log is `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Uninstalling removes the task (Windows) or the timer (Linux).
 
-**GitHub token (optional).** The repository is public, so no token is needed. GitHub allows 60 anonymous API requests an hour per IP address, which a daily check never gets near. For a private fork, or behind a shared address that runs out, put a token that can read the repository's releases in `/etc/foundryvtt-discord-integration/github-token` (owned by root, `chmod 600`) or `C:\ProgramData\FoundryVTT Discord integration\github-token` (the updater restricts it to Administrators and SYSTEM). It is only ever sent to `api.github.com`, never to the download servers, and never logged.
+**GitHub token (optional).** The repository is public, so no token is needed. GitHub allows 60 anonymous API requests an hour per IP address, which a daily check never gets near. For a private fork, or behind a shared address that runs out, put a token that can read the repository's releases in `/etc/foundryvtt-discord-integration/github-token` (owned by root, `chmod 600`; when `INSTALL_GITHUB_TOKEN` is set while the Linux installer turns automatic updates on, it is stored there if the file does not exist yet, after asking when interactive) or `C:\ProgramData\FoundryVTT Discord integration\github-token` (the updater restricts it to Administrators and SYSTEM). It is only ever sent to `api.github.com`, never to the download servers, and never logged.
 
 ## Update notices
 
