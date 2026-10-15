@@ -4,30 +4,24 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-### Security
-
-- Configuration errors no longer print the rejected values (a `FOUNDRY_URL` with a password in it ended up in the log in clear text), and `npm run register-commands` prints only Discord's status, code and message instead of the whole error object. Fixes the three CodeQL "clear-text logging of sensitive information" alerts.
+## [1.4.2] - 2026-10-15
 
 ### Fixed
 
 - Session events could not be created in a campaign's default voice channel: Discord also wants *View Channel* and *Connect* in that channel (a stage channel also *Manage Channels*, *Mute Members* and *Move Members*), and the invite link did not ask for *Connect*. The bot now checks those permissions first and, when they are missing or Discord refuses the voice channel, still creates the event (as an external event at the Foundry world) and says which permission is missing. The invite links (`docs/INSTALL.md`, the bot's own, and the one the Linux installer prints, which also lacked *Create Events*) now include *Connect* and *Read Message History* (needed to show a decided poll's result).
 - **Missing permissions are now explained where they bite.** When the bot lacks a Discord permission for what it was asked, the reply names exactly which permission is missing, in which channel or in the server, the bot's role, and where an administrator adds it (*the channel → Edit Channel → Permissions*, or *Server Settings → Roles →* the bot's role). This covers posting a planning poll, the poll announcement and its result, creating or moving the session event, `/test-message`, and any other command Discord refuses with "Missing Permissions" (instead of "Something went wrong"). `/channel set`, `/campaign create`, `/campaign edit` and `/campaign voice-channel` still save the channel but warn when the bot cannot post or hold events there yet.
+
+## [1.4.1] - 2026-10-12
+
+### Fixed
+
 - Slash commands are now updated whenever the bot is updated, by the auto-updater or by running an installer: the Linux installer, the Windows task installer (also from `setup.exe`) and the Windows zip updater register the commands of the installed version, and the bot registers them again every time it starts. A registration that fails (Discord unreachable, rate limit) is retried for a few minutes instead of waiting for the next restart, and the log says whether the commands changed. When `DISCORD_GUILD_ID` is added, changed or removed, the bot empties the set it registered before (remembered in `data/state.json` as `commands`), so the old commands no longer stay next to the new ones.
+
+## [1.4.0] - 2026-10-12
 
 ### Added
 
 - One-line Linux install shared by the bots: `curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration` (see [docs/INSTALL.md](docs/INSTALL.md#2-install-on-linux-guided-installer)).
-- **Voice channel for session events.** A campaign can have a default voice channel (`/campaign voice-channel`, or `voice-channel` on `/campaign create` and `/campaign edit`); the Discord event of a planned session is then held there. Without one, whoever plans the session is asked to pick one of the server's voice channels or skip, and after a pick whether to make it the campaign's default (declining shows how to set it later). `/campaign show` lists it.
-- `/session set` now also creates the Discord scheduled event, like a decided planning poll. Planning again moves the event the bot created for the previous date instead of adding another one.
-- Planning polls: every date is now a button with its vote count (tap to vote, tap again to take it back) instead of a drop-down list, plus a **Toggle all dates** button that votes for every date or withdraws all your votes. A poll now offers up to 20 dates (was 25) so the buttons fit one message; polls posted earlier keep their menu.
-- `/session set` now also writes the date to the world's `world.json` (`nextSession`), like a decided planning poll; the reply says if that failed. `/session event` and `/session clear` leave `world.json` alone.
-- **Automatic updates (opt-in, off by default).** A daily check of the latest GitHub release; when it is newer than the installed version (semantic versioning; drafts and pre-releases are ignored) the bundle for the platform is downloaded, its SHA-256 checked against the release's checksum file, and it is installed the same way as a manual upgrade, then the bot is restarted. `.env` is restored byte for byte and `data/` is never touched; if the installer fails or the bot does not come back up, the previous version is restored, and the rollback itself is verified (each restore step, and that the bot runs again if it was running): a failed rollback logs `ROLLBACK FAILED: …` with manual recovery steps, keeps the backup and exits with an error. Linux: a systemd timer and service (`foundryvtt-discord-bot-update`), turned on with the installer's new question, `--auto-update`, or `install.sh --enable-auto-update` (`--disable-auto-update` turns it off); `deploy/linux/auto-update.sh --check` reports without installing. Windows: a Scheduled Task running as SYSTEM, turned on with the setup wizard's new *Install new releases automatically* checkbox (unchecked by default), `/AutoUpdate=1`, `install-task.ps1 -AutoUpdate` or `deploy\windows\auto-update.ps1 -Enable` (`-Disable`, `-Check`); log in `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Re-running an installer keeps the current choice; uninstalling removes the timer or task. An optional GitHub token file is supported for private forks. On Linux the installer now makes the program files root-owned, and the root updater refuses to run from a folder another account can change; on Windows it refuses to run setup.exe when the bot task runs as an account other than SYSTEM. See [docs/INSTALL.md](docs/INSTALL.md#automatic-updates).
-- **Update notice by direct message.** When the bot starts on a newer version than it ran before, it sends one DM per person to the owner and every Administrator of each server it is in, listing their servers, with the changelog of the new version (the GitHub release notes when the auto-updater installed it, otherwise the section of the installed `CHANGELOG.md`) and a link to the release. Announced at most once per version; the first start only records the version. New setting `UPDATE_NOTIFY` = `admins` (default), `owner` or `off`.
-- **Planning polls** (`/planning-poll campaign:<name>`; the Discord event is three hours long): pick candidate dates, the bot posts a poll tagging the DM and the players, and they vote. **Decide date** offers the dates with the most votes, then a time; the bot creates a Discord scheduled event, announces it in the poll's channel and sets the campaign's next session. **Delete poll** removes it. For administrators, the campaign's DM and the new game master role.
-- Planning polls also set the world's `nextSession` in its `world.json` (the only write the bot makes to Foundry's folders; atomic, one key, layout kept).
-- **Permission check**: at startup and when the bot's role or a channel changes, the bot checks the permissions it needs (View Channels, Send Messages, Send Messages in Threads, Embed Links, Create Events) and announces what is missing once in the status channel. A server where the bot was added without the `applications.commands` scope gets a reinstall notice with the invite link. The invite link and `docs/INSTALL.md` now include Create Events.
-- `/gm-role set|clear|show` (admin): the per-server game master role that may use `/planning-poll` for every campaign.
-- `/updates available changes:true`: one message per Foundry/system/module update, each with the cumulative changelogs of the versions between the installed and the latest one, kept within Discord's message size limit.
 
 ### Changed
 
@@ -36,9 +30,47 @@ All notable changes to this project are documented here. The format follows [Kee
 - **Automatic updates** verify the Windows setup.exe with `SHA256SUMS.txt` (falling back to `SHA256SUMS-setup.txt` only for releases up to v1.3.2, which listed it only there).
 - **Linux installer options** shared with the other bots: `--yes`/`-y` (same as `--non-interactive`), `--check-update` (exit 0 = up to date, 10 = newer release available, other = error), `--update-now` (installs the latest release with the auto-updater), and a `--help` listing the common options first. Every existing option keeps working. When `INSTALL_GITHUB_TOKEN` is set (the `dxcufgb/install` one-liner exports it for private repositories) and automatic updates are turned on, the token is stored as the updater's token file if there is none yet (asked first when interactive). `deploy/linux/auto-update.sh --check-update` is the check with that exit code; `--check` is unchanged.
 - The `install.sh` one-liner (`…/releases/latest/download/install.sh | sudo bash`) now checks the downloaded archive against the release's `SHA256SUMS.txt`, and `--version` accepts `1.2.3` as well as `v1.2.3`.
+
+## [1.3.2] - 2026-10-11
+
+### Added
+
+- **Voice channel for session events.** A campaign can have a default voice channel (`/campaign voice-channel`, or `voice-channel` on `/campaign create` and `/campaign edit`); the Discord event of a planned session is then held there. Without one, whoever plans the session is asked to pick one of the server's voice channels or skip, and after a pick whether to make it the campaign's default (declining shows how to set it later). `/campaign show` lists it.
+- `/session set` now also creates the Discord scheduled event, like a decided planning poll. Planning again moves the event the bot created for the previous date instead of adding another one.
+- Planning polls: every date is now a button with its vote count (tap to vote, tap again to take it back) instead of a drop-down list, plus a **Toggle all dates** button that votes for every date or withdraws all your votes. A poll now offers up to 20 dates (was 25) so the buttons fit one message; polls posted earlier keep their menu.
+
+## [1.3.1] - 2026-10-10
+
+### Added
+
+- `/session set` now also writes the date to the world's `world.json` (`nextSession`), like a decided planning poll; the reply says if that failed. `/session event` and `/session clear` leave `world.json` alone.
+
+## [1.3.0] - 2026-10-10
+
+### Added
+
+- **Automatic updates (opt-in, off by default).** A daily check of the latest GitHub release; when it is newer than the installed version (semantic versioning; drafts and pre-releases are ignored) the bundle for the platform is downloaded, its SHA-256 checked against the release's checksum file, and it is installed the same way as a manual upgrade, then the bot is restarted. `.env` is restored byte for byte and `data/` is never touched; if the installer fails or the bot does not come back up, the previous version is restored, and the rollback itself is verified (each restore step, and that the bot runs again if it was running): a failed rollback logs `ROLLBACK FAILED: …` with manual recovery steps, keeps the backup and exits with an error. Linux: a systemd timer and service (`foundryvtt-discord-bot-update`), turned on with the installer's new question, `--auto-update`, or `install.sh --enable-auto-update` (`--disable-auto-update` turns it off); `deploy/linux/auto-update.sh --check` reports without installing. Windows: a Scheduled Task running as SYSTEM, turned on with the setup wizard's new *Install new releases automatically* checkbox (unchecked by default), `/AutoUpdate=1`, `install-task.ps1 -AutoUpdate` or `deploy\windows\auto-update.ps1 -Enable` (`-Disable`, `-Check`); log in `C:\ProgramData\FoundryVTT Discord integration\auto-update.log`. Re-running an installer keeps the current choice; uninstalling removes the timer or task. An optional GitHub token file is supported for private forks. On Linux the installer now makes the program files root-owned, and the root updater refuses to run from a folder another account can change; on Windows it refuses to run setup.exe when the bot task runs as an account other than SYSTEM. See [docs/INSTALL.md](docs/INSTALL.md#automatic-updates).
+- **Update notice by direct message.** When the bot starts on a newer version than it ran before, it sends one DM per person to the owner and every Administrator of each server it is in, listing their servers, with the changelog of the new version (the GitHub release notes when the auto-updater installed it, otherwise the section of the installed `CHANGELOG.md`) and a link to the release. Announced at most once per version; the first start only records the version. New setting `UPDATE_NOTIFY` = `admins` (default), `owner` or `off`.
+- **Planning polls** (`/planning-poll campaign:<name>`; the Discord event is three hours long): pick candidate dates, the bot posts a poll tagging the DM and the players, and they vote. **Decide date** offers the dates with the most votes, then a time; the bot creates a Discord scheduled event, announces it in the poll's channel and sets the campaign's next session. **Delete poll** removes it. For administrators, the campaign's DM and the new game master role.
+- Planning polls also set the world's `nextSession` in its `world.json` (the only write the bot makes to Foundry's folders; atomic, one key, layout kept).
+- **Permission check**: at startup and when the bot's role or a channel changes, the bot checks the permissions it needs (View Channels, Send Messages, Send Messages in Threads, Embed Links, Create Events) and announces what is missing once in the status channel. A server where the bot was added without the `applications.commands` scope gets a reinstall notice with the invite link. The invite link and `docs/INSTALL.md` now include Create Events.
+- `/gm-role set|clear|show` (admin): the per-server game master role that may use `/planning-poll` for every campaign.
+
+### Changed
+
 - **Recommended: enable the *Server Members Intent*.** With the default `UPDATE_NOTIFY=admins` the bot now asks Discord for the privileged Server Members intent (to find each server's administrators for the update notice; `owner` and `off` do not request it). Turn it on in the Developer Portal (your application → **Bot** → *Privileged Gateway Intents* → *Server Members Intent*). Without it the bot still starts: it logs one warning (how to enable the intent, or set `UPDATE_NOTIFY=owner` to silence it), connects again without the intent and sends update notices to server owners only. If the intent is turned off while the bot is running, the bot exits so the service restarts it in that mode.
 - The systemd unit no longer restarts the bot on exit code 2 (a configuration error such as a bad `.env`, where restarting does not help).
 - Windows install scripts print with `Write-Output` instead of `Write-Host`, and CI now runs PSScriptAnalyzer on `deploy/windows` and shellcheck on `deploy/linux`.
+
+## [1.2.2] - 2026-10-07
+
+### Security
+
+- Configuration errors no longer print the rejected values (a `FOUNDRY_URL` with a password in it ended up in the log in clear text), and `npm run register-commands` prints only Discord's status, code and message instead of the whole error object. Fixes the three CodeQL "clear-text logging of sensitive information" alerts.
+
+### Added
+
+- `/updates available changes:true`: one message per Foundry/system/module update, each with the cumulative changelogs of the versions between the installed and the latest one, kept within Discord's message size limit.
 
 ## [1.2.1] - 2026-10-05
 
@@ -93,7 +125,14 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.3.2...v1.4.0
+[1.3.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.2...v1.3.0
+[1.2.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/tag/v1.1.0
