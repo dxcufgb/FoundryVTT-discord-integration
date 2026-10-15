@@ -248,7 +248,19 @@ test("if the event cannot be created the session is still set and announced", as
   const campaign = env.state.campaign("g1", "lost-mines");
   assert.equal(campaign.nextSession.source, "poll");
   assert.equal(campaign.nextSession.eventId, null);
-  assert.match(env.sent[1].content, /Discord event could not be created \(Missing Permissions\)/);
+  assert.match(env.sent[1].content, /Discord event could not be created, but the session is planned: Discord refused \(Missing Permissions\): the bot needs \*\*Create Events\*\* in this server\. An administrator can add it under \*Server Settings → Roles →\* the bot's role\./);
+});
+
+test("without Create Events the bot says so, and names its role, without trying", async () => {
+  const env = setup();
+  let tried = 0;
+  env.guild.scheduledEvents.create = async () => { tried += 1; return { id: "e1" }; };
+  env.guild.members = { me: { permissions: { has: () => false }, roles: { botRole: { name: "Foundry" } } } };
+  await startPoll(env, ["2026-03-06"]);
+  await voteFor(env, "p1", ["2026-03-06"]);
+  await handleInteraction(component(env, { customId: "poll:time:m1:2026-03-06", values: ["20:00"], messageId: "eph" }), env.ctx, { log: quietLog });
+  assert.equal(tried, 0);
+  assert.match(env.sent[1].content, /the bot lacks \*\*Create Events\*\* in this server\. An administrator can add it under \*Server Settings → Roles →\* \*\*@Foundry\*\*\./);
 });
 
 test("/gm-role is admin-only and stores the role; helpers", async () => {
@@ -295,7 +307,7 @@ test("a failing announcement still closes the poll and is reported", async () =>
   await handleInteraction(time, env.ctx, { log: quietLog });
   assert.equal(env.state.campaign("g1", "lost-mines").nextSession.at, "2026-03-06T19:00:00.000Z");
   assert.deepEqual(env.pollMessage.edits[0].components, []);
-  assert.match(last(time).content, /the announcement failed \(Missing Access\)/);
+  assert.match(last(time).content, /The announcement could not be posted.*\n⚠️ Announcement: Discord refused \(Missing Access\): the bot needs \*\*View Channel, Send Messages, Embed Links\*\* in <#chan>\. An administrator can add them in <#chan> → \*Edit Channel → Permissions\*/s);
 });
 
 test("only a date with the most votes can be finalized, and an unavailable channel is reported", async () => {
@@ -311,7 +323,7 @@ test("only a date with the most votes can be finalized, and an unavailable chann
   const ok = component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"], messageId: "eph" });
   ok.channel = null;
   await handleInteraction(ok, env.ctx, { log: quietLog });
-  assert.match(last(ok).content, /the announcement failed \(the announcement channel is unavailable\)/);
+  assert.match(last(ok).content, /Announcement: the poll's channel is no longer available to the bot\./);
 });
 
 test("a poll that another interaction already claimed is not finalized twice", async () => {

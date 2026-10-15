@@ -16,8 +16,25 @@ export const REQUIRED_PERMISSIONS = Object.freeze([
   ["CreateEvents", "Create Events"],
 ]);
 
-/** Bot permissions the invite link asks for: the required ones plus Mention @everyone/@here/All Roles (for the role ping). */
-export const INVITE_PERMISSIONS = new PermissionsBitField([...REQUIRED_PERMISSIONS.map(([flag]) => PermissionFlagsBits[flag]), PermissionFlagsBits.MentionEveryone]).bitfield;
+// What Discord wants in the channel itself before the bot can hold an event in a voice or stage channel.
+export const VOICE_EVENT_PERMISSIONS = Object.freeze([
+  ["ViewChannel", "View Channel"],
+  ["Connect", "Connect"],
+]);
+export const STAGE_EVENT_PERMISSIONS = Object.freeze([
+  ...VOICE_EVENT_PERMISSIONS,
+  ["ManageChannels", "Manage Channels"],
+  ["MuteMembers", "Mute Members"],
+  ["MoveMembers", "Move Members"],
+]);
+
+/** Bot permissions the invite link asks for: the required ones, Connect (events in voice channels), Read Message History (showing a poll's result) and Mention @everyone/@here/All Roles (for the role ping). */
+export const INVITE_PERMISSIONS = new PermissionsBitField([
+  ...REQUIRED_PERMISSIONS.map(([flag]) => PermissionFlagsBits[flag]),
+  PermissionFlagsBits.Connect,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.MentionEveryone,
+]).bitfield;
 
 export function inviteUrl(clientId) {
   return `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=${OAuth2Scopes.Bot}+${OAuth2Scopes.ApplicationsCommands}&permissions=${INVITE_PERMISSIONS}`;
@@ -31,6 +48,85 @@ export function missingPermissions(guild, channel = null) {
   if (!perms) return [];
   const flags = channel ? REQUIRED_PERMISSIONS.filter(([flag]) => !["CreateEvents"].includes(flag)) : REQUIRED_PERMISSIONS;
   return flags.filter(([flag]) => !perms.has(PermissionFlagsBits[flag])).map(([, label]) => label);
+}
+
+// --- telling the user exactly what is missing and where to add it -------------------------
+
+// What the bot needs to post its messages in a channel, and in the channel of a planning poll (it fetches
+// the poll message again to show the result).
+export const POST_PERMISSIONS = Object.freeze([
+  ["ViewChannel", "View Channel"],
+  ["SendMessages", "Send Messages"],
+  ["EmbedLinks", "Embed Links"],
+]);
+const THREAD_POST_PERMISSIONS = Object.freeze([...POST_PERMISSIONS, ["SendMessagesInThreads", "Send Messages in Threads"]]);
+export const POLL_PERMISSIONS = Object.freeze([...POST_PERMISSIONS, ["ReadMessageHistory", "Read Message History"]]);
+export const EVENT_PERMISSIONS = Object.freeze([["CreateEvents", "Create Events"]]);
+
+/** Posting needs Send Messages in Threads as well when the channel is a thread. */
+export const postPermissionsFor = (channel, base = POST_PERMISSIONS) => (channel?.isThread?.() ? [...base, ...THREAD_POST_PERMISSIONS.slice(POST_PERMISSIONS.length)] : base);
+
+/** Labels of `wanted` ([flag, label] pairs) the bot lacks in `channel`, or in the server without one; [] when it cannot tell. */
+function missingOf(guild, channel, wanted) {
+  const me = guild?.members?.me;
+  if (!me) return [];
+  const perms = channel ? (channel.permissionsFor ? channel.permissionsFor(me) : null) : me.permissions;
+  if (!perms) return [];
+  return wanted.filter(([flag]) => !perms.has(PermissionFlagsBits[flag])).map(([, label]) => label);
+}
+
+const botRole = (guild) => {
+  const role = guild?.members?.me?.roles?.botRole;
+  return role?.name ? `**@${role.name}**` : "the bot's role";
+};
+
+/** Where an administrator adds `missing` for the bot: the server's roles, or (for a channel) also the channel's own permissions. */
+export function whereToAdd(guild, channelId, missing) {
+  const them = missing.length === 1 ? "it" : "them";
+  const role = botRole(guild);
+  if (!channelId) return `An administrator can add ${them} under *Server Settings → Roles →* ${role}.`;
+  return (
+    `An administrator can add ${them} in <#${channelId}> → *Edit Channel → Permissions* (add ${role} and allow ${them}), ` +
+    `or under *Server Settings → Roles →* ${role}; a ❌ on the channel overrides the role.`
+  );
+}
+
+/** "the bot lacks **X, Y** in <#c>. An administrator can add …", or null when nothing is known to be missing. */
+export function permissionProblem(guild, channel, wanted) {
+  const missing = missingOf(guild, channel, wanted);
+  if (!missing.length) return null;
+  return `the bot lacks **${missing.join(", ")}** ${channel ? `in <#${channel.id}>` : "in this server"}. ${whereToAdd(guild, channel?.id ?? null, missing)}`;
+}
+
+/** The channel as the bot's server sees it (for its permissions), or null. */
+export async function guildChannel(guild, channelId) {
+  if (!guild?.channels || !channelId) return null;
+  return guild.channels.cache?.get(channelId) ?? (await Promise.resolve(guild.channels.fetch?.(channelId)).catch(() => null)) ?? null;
+}
+
+/** A line warning that the bot cannot post in `channel` (and how to fix it), or "". */
+export function postingWarning(guild, channel) {
+  const problem = channel ? permissionProblem(guild, channel, postPermissionsFor(channel)) : null;
+  return problem ? `\n⚠️ The bot cannot post in <#${channel.id}> yet: ${problem}` : "";
+}
+
+/** End a message with a full stop unless it already ends a sentence. */
+export const asSentence = (text) => (/[.!?]$/.test(String(text).trim()) ? String(text).trim() : `${String(text).trim()}.`);
+
+/** Is this Discord's "Missing Permissions" (50013) or "Missing Access" (50001)? */
+export const isPermissionError = (err) => err?.code === 50013 || err?.code === 50001 || /missing (permissions|access)/i.test(err?.message ?? "");
+
+/**
+ * Explain a failed Discord call: for a permission error, which of `wanted` the bot lacks and where to add
+ * them (or, when that cannot be told, which permissions it needs); otherwise Discord's message.
+ */
+export function explainError(err, guild, channel, wanted) {
+  const message = err?.message ?? String(err);
+  if (!isPermissionError(err)) return message;
+  const problem = permissionProblem(guild, channel, wanted);
+  if (problem) return problem;
+  const labels = wanted.map(([, label]) => label);
+  return `Discord refused (${message}): the bot needs **${labels.join(", ")}** ${channel ? `in <#${channel.id}>` : "in this server"}. ${whereToAdd(guild, channel?.id ?? null, labels)}`;
 }
 
 /** Does Discord refuse the bot access to this server's application commands, i.e. is the `applications.commands` scope missing? */

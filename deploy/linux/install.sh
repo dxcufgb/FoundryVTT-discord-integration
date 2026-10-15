@@ -526,7 +526,7 @@ fi
 # --- 7. done ---------------------------------------------------------------------------------------------------------
 printf '\n%sInstalled.%s\n\n' "$GREEN$BOLD" "$RESET"
 say "  Invite the bot to your Discord server (if you have not yet):"
-say "    https://discord.com/oauth2/authorize?client_id=$CLIENT_ID&scope=bot+applications.commands&permissions=274878057472"
+say "    https://discord.com/oauth2/authorize?client_id=$CLIENT_ID&scope=bot+applications.commands&permissions=17867065216000"
 say
 say "  Then, in Discord as a server administrator:"
 say "    /channel set type:default              in the channel for messages"

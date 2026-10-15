@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ChannelType, GuildScheduledEventEntityType } from "discord.js";
+import { ChannelType, GuildScheduledEventEntityType, PermissionFlagsBits } from "discord.js";
 import { handleInteraction } from "../src/discord/client.js";
 import { createCampaign, describeCampaign, NOT_DM_MESSAGE } from "../src/campaigns.js";
 import { NOT_VOICE_MANAGER_MESSAGE } from "../src/discord/sessionEvents.js";
@@ -9,19 +9,26 @@ import { fakeInteraction, quietLog, tmpState } from "./helpers.js";
 const NOW = new Date("2026-03-01T12:00:00Z");
 const AT = 1772906400; // 2026-03-07 19:00 in Stockholm
 
-function setup({ voiceChannel = null, gmRole = null } = {}) {
+// `voicePerms`: the permission bits the bot has in the voice and stage channels (null: unknown, as before the bot's member is cached).
+function setup({ voiceChannel = null, gmRole = null, voicePerms = null, refuseVoice = false } = {}) {
   const state = tmpState();
   state.saveCampaign("g1", createCampaign({ name: "Lost Mines", world: "lost-mines", dm: "dm1", players: ["p1"], voiceChannel }, { now: () => NOW }));
   if (gmRole) state.setGmRole("g1", gmRole);
   const created = [];
   const edited = [];
   const sent = [];
-  const channels = new Map([["vc9", { id: "vc9", type: ChannelType.GuildVoice }], ["stage1", { id: "stage1", type: ChannelType.GuildStageVoice }]]);
+  const permissionsFor = voicePerms ? () => ({ has: (bit) => voicePerms.includes(bit) }) : undefined;
+  const channels = new Map([["vc9", { id: "vc9", type: ChannelType.GuildVoice, permissionsFor }], ["stage1", { id: "stage1", type: ChannelType.GuildStageVoice, permissionsFor }]]);
   const guild = {
     id: "g1",
+    members: { me: { id: "bot" } },
     channels: { cache: channels, fetch: async (id) => { throw new Error(`Unknown Channel ${id}`); } },
     scheduledEvents: {
-      create: async (o) => { created.push(o); return { id: `e${created.length}`, name: o.name }; },
+      create: async (o) => {
+        if (refuseVoice && o.channel) throw new Error("Missing Permissions");
+        created.push(o);
+        return { id: `e${created.length}`, name: o.name };
+      },
       edit: async (id, o) => { edited.push([id, o]); return { id, name: o.name }; },
     },
   };
@@ -154,11 +161,51 @@ test("planning poll without a default voice channel asks after the time, then us
   assert.deepEqual(customIds(last(pick)), ["vc:yes:lost-mines:stage1", "vc:no:lost-mines:stage1"]);
 });
 
-test("a default voice channel that is gone is reported and the session is still planned", async () => {
+test("a default voice channel that is gone is reported and the event is created without it", async () => {
   const env = setup({ voiceChannel: "deleted" });
   const set = await command(env, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
-  assert.match(last(set).content, /event could not be created \(the voice channel <#deleted> no longer exists/);
+  assert.match(last(set).content, /Event: https:\/\/discord\.com\/events\/g1\/e1\n⚠️ The event is not held in the voice channel: the voice channel <#deleted> no longer exists/);
+  assert.doesNotMatch(last(set).content, /🔊/);
+  assert.equal(env.created[0].entityType, GuildScheduledEventEntityType.External);
   assert.equal(env.state.campaign("g1", "lost-mines").nextSession.at, "2026-03-07T18:00:00.000Z");
+  assert.equal(env.state.campaign("g1", "lost-mines").nextSession.eventCreated, true);
+});
+
+test("planning poll with a default voice channel the bot cannot connect to: external event and the missing permission named", async () => {
+  const env = setup({ voiceChannel: "vc9", voicePerms: [PermissionFlagsBits.ViewChannel] });
+  await component(env, { customId: "poll:create:lost-mines", values: ["2026-03-06"] });
+  env.state.updatePoll("g1", "m1", (p) => (p.votes = { p1: ["2026-03-06"] }));
+  const time = await component(env, { customId: "poll:time:m1:2026-03-06", values: ["19:00"] });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.created[0].entityType, GuildScheduledEventEntityType.External);
+  assert.equal("channel" in env.created[0], false);
+  const announcement = env.sent.at(-1).content;
+  assert.match(announcement, /Event: https:\/\/discord\.com\/events\/g1\/e1/);
+  assert.match(announcement, /not held in the voice channel: the bot lacks \*\*Connect\*\* in <#vc9>\. An administrator can add it in <#vc9> → \*Edit Channel → Permissions\* \(add the bot's role and allow it\), or under \*Server Settings → Roles →\* the bot's role; .*Then plan the session again\./);
+  assert.doesNotMatch(announcement, /🔊|could not be created/);
+  assert.match(last(time).content, /event is created/);
+  assert.equal(env.state.campaign("g1", "lost-mines").nextSession.source, "event");
+});
+
+test("stage channels need more permissions; with them all the event is held there", async () => {
+  const { ViewChannel, Connect, ManageChannels, MuteMembers, MoveMembers } = PermissionFlagsBits;
+  const short = setup({ voiceChannel: "stage1", voicePerms: [ViewChannel, Connect] });
+  const set = await command(short, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
+  assert.match(last(set).content, /the bot lacks \*\*Manage Channels, Mute Members, Move Members\*\* in <#stage1>/);
+  assert.equal(short.created[0].entityType, GuildScheduledEventEntityType.External);
+
+  const full = setup({ voiceChannel: "stage1", voicePerms: [ViewChannel, Connect, ManageChannels, MuteMembers, MoveMembers] });
+  const ok = await command(full, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
+  assert.equal(full.created[0].entityType, GuildScheduledEventEntityType.StageInstance);
+  assert.match(last(ok).content, /🔊 Voice channel: <#stage1>/);
+});
+
+test("Discord refusing the voice event falls back to an external event", async () => {
+  const env = setup({ voiceChannel: "vc9", refuseVoice: true });
+  const set = await command(env, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.created[0].entityType, GuildScheduledEventEntityType.External);
+  assert.match(last(set).content, /not held in the voice channel: Discord refused \(Missing Permissions\): the bot needs \*\*View Channel, Connect\*\* in <#vc9>\. An administrator can add them in <#vc9> → \*Edit Channel → Permissions\*/);
 });
 
 test("/campaign voice-channel shows, sets and clears the default; create and edit take it too", async () => {

@@ -8,6 +8,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType, GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel, MessageFlags } from "discord.js";
 import { eventUrl } from "../campaigns.js";
 import { canRunPoll, SESSION_DURATION_MS } from "../polls.js";
+import { asSentence, EVENT_PERMISSIONS, explainError, permissionProblem, STAGE_EVENT_PERMISSIONS, VOICE_EVENT_PERMISSIONS } from "./health.js";
 
 export const VOICE_CHANNEL_TYPES = Object.freeze([ChannelType.GuildVoice, ChannelType.GuildStageVoice]);
 
@@ -65,56 +66,97 @@ export function canSetVoiceChannel(interaction, campaign, ctx) {
   return canRunPoll(interaction, campaign, ctx.state.guild(interaction.guildId).gmRole);
 }
 
+/** A line warning that session events cannot be held in this voice or stage channel yet (and how to fix it), or "". */
+export function voiceChannelWarning(guild, channel) {
+  if (!channel) return "";
+  const problem = permissionProblem(guild, channel, channel.type === ChannelType.GuildStageVoice ? STAGE_EVENT_PERMISSIONS : VOICE_EVENT_PERMISSIONS);
+  return problem ? `\n⚠️ Session events cannot be held in <#${channel.id}> yet: ${problem}` : "";
+}
+
 async function guildOf(interaction, ctx) {
   const guild = interaction.guild ?? (ctx.client?.guilds ? await ctx.client.guilds.fetch(interaction.guildId) : null);
   if (!guild?.scheduledEvents) throw new Error("the server is not available to the bot");
   return guild;
 }
 
-/** Voice or stage event, depending on the channel; throws when the channel is gone. */
-async function voiceEntityType(guild, channelId) {
-  if (!guild.channels) return GuildScheduledEventEntityType.Voice;
+/**
+ * Where a voice or stage event can be held: { entityType, channel, wanted } (`wanted`: the permissions it
+ * needs there) or, when the bot cannot hold it there, { problem } (the channel is gone, or the bot lacks some).
+ */
+async function voiceLocation(guild, channelId) {
+  if (!guild.channels) return { channel: { id: channelId }, wanted: VOICE_EVENT_PERMISSIONS, entityType: GuildScheduledEventEntityType.Voice };
   const channel = guild.channels.cache?.get(channelId) ?? (await Promise.resolve(guild.channels.fetch?.(channelId)).catch(() => null));
-  if (!channel) throw new Error(`the voice channel <#${channelId}> no longer exists or the bot cannot see it`);
-  return channel.type === ChannelType.GuildStageVoice ? GuildScheduledEventEntityType.StageInstance : GuildScheduledEventEntityType.Voice;
+  if (!channel) return { problem: `the voice channel <#${channelId}> no longer exists or the bot cannot see it (it needs **View Channel** there).` };
+  const stage = channel.type === ChannelType.GuildStageVoice;
+  const wanted = stage ? STAGE_EVENT_PERMISSIONS : VOICE_EVENT_PERMISSIONS;
+  const problem = permissionProblem(guild, channel, wanted);
+  if (problem) return { problem: `${problem} Then plan the session again.`, channel, wanted };
+  return { channel, wanted, entityType: stage ? GuildScheduledEventEntityType.StageInstance : GuildScheduledEventEntityType.Voice };
 }
 
 /**
  * Create the Discord event of a session: in `voiceChannel` when given, otherwise an external event "at" the
- * Foundry world. When the campaign's planned session still has an upcoming event the bot created, that
- * event is moved instead, so planning again does not leave a stale event behind.
- * Never throws: returns { event, url, error }.
+ * Foundry world. When the voice channel cannot be used (gone, missing permissions, refused by Discord) the
+ * event is created as an external one instead and `warning` says why. When the campaign's planned session
+ * still has an upcoming event the bot created, that event is moved instead, so planning again does not leave
+ * a stale event behind.
+ * Errors and warnings are sentences that name a missing permission and where to add it.
+ * Never throws: returns { event, url, error, warning, voiceChannel } (`voiceChannel`: where the event is held, or null).
  */
 export async function scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, how) {
+  let guild = null;
   try {
-    const guild = await guildOf(interaction, ctx);
+    guild = await guildOf(interaction, ctx);
+    const noEvents = permissionProblem(guild, null, EVENT_PERMISSIONS);
+    if (noEvents) throw Object.assign(new Error(noEvents), { explained: true });
     const world = ctx.worldTitle?.(campaign.world) ?? campaign.world;
-    const options = {
+    const base = {
       name: `${campaign.name} session`.slice(0, 100),
       scheduledStartTime: at,
       scheduledEndTime: new Date(at.getTime() + SESSION_DURATION_MS),
       privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
       description: `Next session of ${campaign.name} (Foundry VTT: ${world}). ${how}`.slice(0, 1000),
-      ...(voiceChannel
-        ? { entityType: await voiceEntityType(guild, voiceChannel), channel: voiceChannel }
-        : { entityType: GuildScheduledEventEntityType.External, entityMetadata: { location: `Foundry VTT: ${world}`.slice(0, 100) } }),
     };
+    // Moving an event out of a voice channel has to clear its channel.
+    const external = { ...base, entityType: GuildScheduledEventEntityType.External, entityMetadata: { location: `Foundry VTT: ${world}`.slice(0, 100) }, channel: null };
     const previous = campaign.nextSession;
     const now = (ctx.now ?? (() => new Date()))();
+    const movable = previous?.eventCreated && previous.eventId && new Date(previous.at) > now && guild.scheduledEvents.edit;
+    const place = async (options) => {
+      let event = null;
+      if (movable) {
+        event = await guild.scheduledEvents.edit(previous.eventId, options).catch((err) => {
+          ctx.log?.debug?.("Could not move the previous session event; creating a new one:", err?.message ?? err);
+          return null;
+        });
+      }
+      if (!event) {
+        const { channel, ...rest } = options;
+        event = await guild.scheduledEvents.create(channel ? options : rest);
+      }
+      return event;
+    };
+
     let event = null;
-    if (previous?.eventCreated && previous.eventId && new Date(previous.at) > now && guild.scheduledEvents.edit) {
-      // Moving an event out of a voice channel has to clear its channel.
-      event = await guild.scheduledEvents.edit(previous.eventId, voiceChannel ? options : { ...options, channel: null }).catch((err) => {
-        ctx.log?.debug?.("Could not move the previous session event; creating a new one:", err?.message ?? err);
-        return null;
-      });
+    let warning = null;
+    if (voiceChannel) {
+      const location = await voiceLocation(guild, voiceChannel);
+      if (location.problem) warning = location.problem;
+      else {
+        event = await place({ ...base, entityType: location.entityType, channel: voiceChannel }).catch((err) => {
+          warning = asSentence(explainError(err, guild, location.channel, location.wanted));
+          return null;
+        });
+      }
+      if (warning) ctx.log?.warn?.(`The session event cannot be held in voice channel ${voiceChannel}; creating it without one:`, warning);
     }
-    event ??= await guild.scheduledEvents.create(options);
-    return { event, url: event?.id ? eventUrl(interaction.guildId, event.id) : null, error: null };
+    event ??= await place(external);
+    const held = warning ? null : voiceChannel ?? null;
+    return { event, url: event?.id ? eventUrl(interaction.guildId, event.id) : null, error: null, warning, voiceChannel: held };
   } catch (err) {
-    const error = err?.message ?? String(err);
+    const error = asSentence(err?.explained ? err.message : explainError(err, guild, null, EVENT_PERMISSIONS));
     ctx.log?.warn?.("Could not create the Discord event:", error);
-    if (/permission/i.test(error)) ctx.checkHealth?.(interaction.guild)?.catch?.(() => {});
-    return { event: null, url: null, error };
+    if (/lacks|permission/i.test(error)) ctx.checkHealth?.(interaction.guild)?.catch?.(() => {});
+    return { event: null, url: null, error, warning: null, voiceChannel: null };
   }
 }

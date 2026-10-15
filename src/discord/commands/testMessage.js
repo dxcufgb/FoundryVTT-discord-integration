@@ -1,6 +1,7 @@
 import { InteractionContextType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import { MESSAGE_TYPES } from "../../state.js";
 import { COLORS } from "../../messages.js";
+import { asSentence, explainError, guildChannel, permissionProblem, postPermissionsFor } from "../health.js";
 
 export const data = new SlashCommandBuilder()
   .setName("test-message")
@@ -15,10 +16,13 @@ export async function execute(interaction, { state, notifier }) {
   const type = interaction.options.getString("type", true);
   const channelId = state.resolveChannel(interaction.guildId, type);
   if (!channelId) return interaction.reply({ content: `No channel is set for **${type}** messages (and no default). Use \`/channel set\` first.`, flags: MessageFlags.Ephemeral });
+  const channel = await guildChannel(interaction.guild, channelId);
+  const cannot = channel && permissionProblem(interaction.guild, channel, postPermissionsFor(channel));
+  if (cannot) return interaction.reply({ content: `⚠️ Could not post in <#${channelId}>: ${cannot}`, flags: MessageFlags.Ephemeral });
   try {
     await notifier.sendTo(channelId, { embeds: [{ title: "🧪 Test message", description: `This is where **${type}** messages will be posted.`, color: COLORS.grey, timestamp: new Date().toISOString() }] });
   } catch (err) {
-    return interaction.reply({ content: `Could not post in <#${channelId}>: ${err.message}. Does the bot have permission to view and send messages there?`, flags: MessageFlags.Ephemeral });
+    return interaction.reply({ content: `⚠️ Could not post in <#${channelId}>: ${asSentence(explainError(err, interaction.guild, channel ?? { id: channelId }, postPermissionsFor(channel)))}`, flags: MessageFlags.Ephemeral });
   }
   return interaction.reply({ content: `Posted a test **${type}** message in <#${channelId}>.`, flags: MessageFlags.Ephemeral });
 }
