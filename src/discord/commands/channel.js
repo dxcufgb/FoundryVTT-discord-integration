@@ -1,5 +1,6 @@
 import { ChannelType, InteractionContextType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import { MESSAGE_TYPES } from "../../state.js";
+import { postingWarning } from "../health.js";
 
 export const TYPE_DESCRIPTIONS = Object.freeze({
   default: "Fallback for any message type without its own channel",
@@ -51,7 +52,7 @@ export async function execute(interaction, { state }) {
     const channel = interaction.options.getChannel("channel") ?? interaction.channel;
     if (!channel) return interaction.reply({ content: "Pick a channel.", flags: MessageFlags.Ephemeral });
     state.setChannel(guildId, type, channel.id);
-    return interaction.reply({ content: `**${type}** messages will be posted in <#${channel.id}>.`, flags: MessageFlags.Ephemeral });
+    return interaction.reply({ content: `**${type}** messages will be posted in <#${channel.id}>.${postingWarning(interaction.guild, channel)}`, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   }
 
   if (sub === "clear") {

@@ -8,7 +8,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType, GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel, MessageFlags } from "discord.js";
 import { eventUrl } from "../campaigns.js";
 import { canRunPoll, SESSION_DURATION_MS } from "../polls.js";
-import { missingEventPermissions } from "./health.js";
+import { asSentence, EVENT_PERMISSIONS, explainError, permissionProblem, STAGE_EVENT_PERMISSIONS, VOICE_EVENT_PERMISSIONS } from "./health.js";
 
 export const VOICE_CHANNEL_TYPES = Object.freeze([ChannelType.GuildVoice, ChannelType.GuildStageVoice]);
 
@@ -66,6 +66,13 @@ export function canSetVoiceChannel(interaction, campaign, ctx) {
   return canRunPoll(interaction, campaign, ctx.state.guild(interaction.guildId).gmRole);
 }
 
+/** A line warning that session events cannot be held in this voice or stage channel yet (and how to fix it), or "". */
+export function voiceChannelWarning(guild, channel) {
+  if (!channel) return "";
+  const problem = permissionProblem(guild, channel, channel.type === ChannelType.GuildStageVoice ? STAGE_EVENT_PERMISSIONS : VOICE_EVENT_PERMISSIONS);
+  return problem ? `\n⚠️ Session events cannot be held in <#${channel.id}> yet: ${problem}` : "";
+}
+
 async function guildOf(interaction, ctx) {
   const guild = interaction.guild ?? (ctx.client?.guilds ? await ctx.client.guilds.fetch(interaction.guildId) : null);
   if (!guild?.scheduledEvents) throw new Error("the server is not available to the bot");
@@ -73,17 +80,18 @@ async function guildOf(interaction, ctx) {
 }
 
 /**
- * Where a voice or stage event can be held: { entityType, channel } or, when the bot cannot hold it there,
- * { problem } (the channel is gone, or the bot lacks the permissions Discord asks for in it).
+ * Where a voice or stage event can be held: { entityType, channel, wanted } (`wanted`: the permissions it
+ * needs there) or, when the bot cannot hold it there, { problem } (the channel is gone, or the bot lacks some).
  */
 async function voiceLocation(guild, channelId) {
-  if (!guild.channels) return { entityType: GuildScheduledEventEntityType.Voice, channel: channelId };
+  if (!guild.channels) return { channel: { id: channelId }, wanted: VOICE_EVENT_PERMISSIONS, entityType: GuildScheduledEventEntityType.Voice };
   const channel = guild.channels.cache?.get(channelId) ?? (await Promise.resolve(guild.channels.fetch?.(channelId)).catch(() => null));
-  if (!channel) return { problem: `the voice channel <#${channelId}> no longer exists or the bot cannot see it` };
+  if (!channel) return { problem: `the voice channel <#${channelId}> no longer exists or the bot cannot see it (it needs **View Channel** there).` };
   const stage = channel.type === ChannelType.GuildStageVoice;
-  const missing = missingEventPermissions(guild, channel, stage);
-  if (missing.length) return { problem: `the bot lacks **${missing.join(", ")}** in <#${channelId}>; give the bot's role ${missing.length > 1 ? "these permissions" : "that permission"} there (the channel's permission overrides) and plan the session again` };
-  return { entityType: stage ? GuildScheduledEventEntityType.StageInstance : GuildScheduledEventEntityType.Voice, channel: channelId };
+  const wanted = stage ? STAGE_EVENT_PERMISSIONS : VOICE_EVENT_PERMISSIONS;
+  const problem = permissionProblem(guild, channel, wanted);
+  if (problem) return { problem: `${problem} Then plan the session again.`, channel, wanted };
+  return { channel, wanted, entityType: stage ? GuildScheduledEventEntityType.StageInstance : GuildScheduledEventEntityType.Voice };
 }
 
 /**
@@ -92,11 +100,15 @@ async function voiceLocation(guild, channelId) {
  * event is created as an external one instead and `warning` says why. When the campaign's planned session
  * still has an upcoming event the bot created, that event is moved instead, so planning again does not leave
  * a stale event behind.
+ * Errors and warnings are sentences that name a missing permission and where to add it.
  * Never throws: returns { event, url, error, warning, voiceChannel } (`voiceChannel`: where the event is held, or null).
  */
 export async function scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, how) {
+  let guild = null;
   try {
-    const guild = await guildOf(interaction, ctx);
+    guild = await guildOf(interaction, ctx);
+    const noEvents = permissionProblem(guild, null, EVENT_PERMISSIONS);
+    if (noEvents) throw Object.assign(new Error(noEvents), { explained: true });
     const world = ctx.worldTitle?.(campaign.world) ?? campaign.world;
     const base = {
       name: `${campaign.name} session`.slice(0, 100),
@@ -131,8 +143,8 @@ export async function scheduleSessionEvent(interaction, ctx, campaign, at, voice
       const location = await voiceLocation(guild, voiceChannel);
       if (location.problem) warning = location.problem;
       else {
-        event = await place({ ...base, entityType: location.entityType, channel: location.channel }).catch((err) => {
-          warning = `Discord refused an event in <#${voiceChannel}>: ${err?.message ?? err}`;
+        event = await place({ ...base, entityType: location.entityType, channel: voiceChannel }).catch((err) => {
+          warning = asSentence(explainError(err, guild, location.channel, location.wanted));
           return null;
         });
       }
@@ -142,9 +154,9 @@ export async function scheduleSessionEvent(interaction, ctx, campaign, at, voice
     const held = warning ? null : voiceChannel ?? null;
     return { event, url: event?.id ? eventUrl(interaction.guildId, event.id) : null, error: null, warning, voiceChannel: held };
   } catch (err) {
-    const error = err?.message ?? String(err);
+    const error = asSentence(err?.explained ? err.message : explainError(err, guild, null, EVENT_PERMISSIONS));
     ctx.log?.warn?.("Could not create the Discord event:", error);
-    if (/permission/i.test(error)) ctx.checkHealth?.(interaction.guild)?.catch?.(() => {});
+    if (/lacks|permission/i.test(error)) ctx.checkHealth?.(interaction.guild)?.catch?.(() => {});
     return { event: null, url: null, error, warning: null, voiceChannel: null };
   }
 }

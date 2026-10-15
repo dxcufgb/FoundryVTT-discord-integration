@@ -10,7 +10,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
-- Session events could not be created in a campaign's default voice channel: Discord also wants *View Channel* and *Connect* in that channel (a stage channel also *Manage Channels*, *Mute Members* and *Move Members*), and the invite link did not ask for *Connect*. The bot now checks those permissions first and, when they are missing or Discord refuses the voice channel, still creates the event (as an external event at the Foundry world) and says in the announcement which permission to give the bot's role in that channel. The invite links (`docs/INSTALL.md`, the bot's own, and the one the Linux installer prints, which also lacked *Create Events*) now include *Connect*.
+- Session events could not be created in a campaign's default voice channel: Discord also wants *View Channel* and *Connect* in that channel (a stage channel also *Manage Channels*, *Mute Members* and *Move Members*), and the invite link did not ask for *Connect*. The bot now checks those permissions first and, when they are missing or Discord refuses the voice channel, still creates the event (as an external event at the Foundry world) and says which permission is missing. The invite links (`docs/INSTALL.md`, the bot's own, and the one the Linux installer prints, which also lacked *Create Events*) now include *Connect* and *Read Message History* (needed to show a decided poll's result).
+- **Missing permissions are now explained where they bite.** When the bot lacks a Discord permission for what it was asked, the reply names exactly which permission is missing, in which channel or in the server, the bot's role, and where an administrator adds it (*the channel → Edit Channel → Permissions*, or *Server Settings → Roles →* the bot's role). This covers posting a planning poll, the poll announcement and its result, creating or moving the session event, `/test-message`, and any other command Discord refuses with "Missing Permissions" (instead of "Something went wrong"). `/channel set`, `/campaign create`, `/campaign edit` and `/campaign voice-channel` still save the channel but warn when the bot cannot post or hold events there yet.
 - Slash commands are now updated whenever the bot is updated, by the auto-updater or by running an installer: the Linux installer, the Windows task installer (also from `setup.exe`) and the Windows zip updater register the commands of the installed version, and the bot registers them again every time it starts. A registration that fails (Discord unreachable, rate limit) is retried for a few minutes instead of waiting for the next restart, and the log says whether the commands changed. When `DISCORD_GUILD_ID` is added, changed or removed, the bot empties the set it registered before (remembered in `data/state.json` as `commands`), so the old commands no longer stay next to the new ones.
 
 ### Added
@@ -43,7 +44,6 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
-- Session events could not be created in a campaign's default voice channel: Discord also wants *View Channel* and *Connect* in that channel (a stage channel also *Manage Channels*, *Mute Members* and *Move Members*), and the invite link did not ask for *Connect*. The bot now checks those permissions first and, when they are missing or Discord refuses the voice channel, still creates the event (as an external event at the Foundry world) and says in the announcement which permission to give the bot's role in that channel. The invite links (`docs/INSTALL.md`, the bot's own, and the one the Linux installer prints, which also lacked *Create Events*) now include *Connect*.
 - `/campaign create` and `/campaign edit`: a world suggestion such as `DND-Online (dnd-online)` is now reduced to just its id (`dnd-online`) if the label is submitted instead of the suggestion's value.
 
 ## [1.2.0] - 2026-10-05
@@ -62,7 +62,6 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
-- Session events could not be created in a campaign's default voice channel: Discord also wants *View Channel* and *Connect* in that channel (a stage channel also *Manage Channels*, *Mute Members* and *Move Members*), and the invite link did not ask for *Connect*. The bot now checks those permissions first and, when they are missing or Discord refuses the voice channel, still creates the event (as an external event at the Foundry world) and says in the announcement which permission to give the bot's role in that channel. The invite links (`docs/INSTALL.md`, the bot's own, and the one the Linux installer prints, which also lacked *Create Events*) now include *Connect*.
 - Linux installer: pressing Enter at the bot token prompt to keep the token from an existing `.env` ended the script silently (the prompt helper's last command was a failing test under `set -e`). It now keeps the token and continues; CI drives the interactive path on a pseudo-terminal to keep it that way.
 
 ## [1.1.0] - 2026-10-04

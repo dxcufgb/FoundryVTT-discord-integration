@@ -9,7 +9,8 @@ import { ChannelType, InteractionContextType, MessageFlags, SlashCommandBuilder 
 import { canManageCampaign, createCampaign, describeCampaign, isCurrentSession, MAX_CAMPAIGN_NAME, mentionUser, normaliseWorldId, NOT_DM_MESSAGE, slugify, uniqueUsers } from "../../campaigns.js";
 import { discordTime } from "../../messages.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
-import { canSetVoiceChannel, NOT_VOICE_MANAGER_MESSAGE, VOICE_CHANNEL_TYPES } from "../sessionEvents.js";
+import { postingWarning } from "../health.js";
+import { canSetVoiceChannel, NOT_VOICE_MANAGER_MESSAGE, VOICE_CHANNEL_TYPES, voiceChannelWarning } from "../sessionEvents.js";
 
 const campaignOption = (o, description = "Campaign (start typing for suggestions)") => o.setName("campaign").setDescription(description).setRequired(true).setAutocomplete(true);
 const voiceOption = (o, description) => o.setName("voice-channel").setDescription(description).addChannelTypes(...VOICE_CHANNEL_TYPES);
@@ -144,7 +145,7 @@ export async function execute(interaction, ctx) {
     const clash = state.campaignForWorld(guildId, campaign.world);
     if (clash) return interaction.reply(ephemeral(`World \`${campaign.world}\` is already bound to **${clash.name}**. Each world can only belong to one campaign in a server.`));
     state.saveCampaign(guildId, campaign);
-    return interaction.reply({ content: `Campaign created.\n${describeCampaign(campaign, { worldTitle, now: now() })}\n\nPlayers can join with \`/campaign join campaign:${campaign.name}\`; the DM plans sessions with \`/session set\` or \`/session event\`.`, allowedMentions: { parse: [] } });
+    return interaction.reply({ content: `Campaign created.\n${describeCampaign(campaign, { worldTitle, now: now() })}\n\nPlayers can join with \`/campaign join campaign:${campaign.name}\`; the DM plans sessions with \`/session set\` or \`/session event\`.${postingWarning(interaction.guild, interaction.options.getChannel("channel"))}${voiceChannelWarning(interaction.guild, interaction.options.getChannel("voice-channel"))}`, allowedMentions: { parse: [] } });
   }
 
   const campaign = findCampaign(state, guildId, interaction.options.getString("campaign", sub !== "list"));
@@ -191,7 +192,8 @@ export async function execute(interaction, ctx) {
     else if (voice) updated.voiceChannel = voice.id;
     if (newId !== campaign.id) state.deleteCampaign(guildId, campaign.id);
     state.saveCampaign(guildId, updated);
-    return interaction.reply(ephemeral(`Campaign updated.\n${describeCampaign(updated, { worldTitle, now: now() })}`));
+    const warnings = `${clearChannel ? "" : postingWarning(interaction.guild, channel)}${clearVoice ? "" : voiceChannelWarning(interaction.guild, voice)}`;
+    return interaction.reply(ephemeral(`Campaign updated.\n${describeCampaign(updated, { worldTitle, now: now() })}${warnings}`));
   }
 
   if (sub === "add-player" || sub === "remove-player") {
@@ -217,7 +219,7 @@ export async function execute(interaction, ctx) {
     }
     if (!canSetVoiceChannel(interaction, campaign, ctx)) return interaction.reply(ephemeral(NOT_VOICE_MANAGER_MESSAGE));
     state.updateCampaign(guildId, campaign.id, (c) => (c.voiceChannel = clear ? null : voice.id));
-    return interaction.reply(ephemeral(clear ? `**${campaign.name}** no longer has a default voice channel; you are asked for one when a session is planned.` : `🔊 <#${voice.id}> is now the default voice channel of **${campaign.name}**'s Discord events.`));
+    return interaction.reply(ephemeral(clear ? `**${campaign.name}** no longer has a default voice channel; you are asked for one when a session is planned.` : `🔊 <#${voice.id}> is now the default voice channel of **${campaign.name}**'s Discord events.${voiceChannelWarning(interaction.guild, voice)}`));
   }
 
   if (sub === "join") {

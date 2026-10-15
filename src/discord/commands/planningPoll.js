@@ -10,6 +10,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionContextType, MessageFlags, ModalBuilder, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { createSession, mentionUser, NOT_DM_MESSAGE, zonedToUtc } from "../../campaigns.js";
 import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canManagePoll, canRunPoll, createPoll, dateLabel, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, setVotes, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../../polls.js";
+import { asSentence, explainError, isPermissionError, permissionProblem, POLL_PERMISSIONS, postPermissionsFor } from "../health.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
 import { defaultVoiceQuestion, scheduleSessionEvent, voicePrompt } from "../sessionEvents.js";
 import { autocomplete as campaignAutocomplete, findCampaign, NO_SUCH_CAMPAIGN } from "./campaign.js";
@@ -101,15 +102,24 @@ async function createFromSelection(interaction, ctx, campaignId) {
   if (!canRunPoll(interaction, campaign, gmRoleOf(ctx, guildId))) return interaction.reply(ephemeral(NO_PERMISSION(gmRoleOf(ctx, guildId))));
   const channel = interaction.channel;
   if (!channel?.send) return interaction.update({ content: "The bot cannot post in this channel.", components: [] });
+  const needed = postPermissionsFor(channel, POLL_PERMISSIONS);
+  const cannot = permissionProblem(interaction.guild, channel, needed);
+  if (cannot) return interaction.update({ content: `⚠️ The poll cannot be posted here: ${cannot}`, components: [] });
 
   const now = ctx.now ?? (() => new Date());
   const poll = createPoll({ id: "pending", channelId: channel.id, campaign, dates: interaction.values, createdBy: interaction.user.id, timezone: config.timezone }, { now });
-  const message = await channel.send({
-    content: `📅 ${campaignMembers(campaign).map(mentionUser).join(" ")} — ${mentionUser(interaction.user.id)} wants to plan the next session of **${campaign.name}**. Vote below!`,
-    embeds: [buildPollEmbed(poll, campaign)],
-    components: pollComponents(poll),
-    allowedMentions: { users: campaignMembers(campaign) },
-  });
+  let message;
+  try {
+    message = await channel.send({
+      content: `📅 ${campaignMembers(campaign).map(mentionUser).join(" ")} — ${mentionUser(interaction.user.id)} wants to plan the next session of **${campaign.name}**. Vote below!`,
+      embeds: [buildPollEmbed(poll, campaign)],
+      components: pollComponents(poll),
+      allowedMentions: { users: campaignMembers(campaign) },
+    });
+  } catch (err) {
+    ctx.log?.warn?.("Could not post the planning poll:", err?.message ?? err);
+    return interaction.update({ content: `⚠️ The poll could not be posted: ${asSentence(explainError(err, interaction.guild, channel, needed))}`, components: [] });
+  }
   poll.id = message.id;
   state.savePoll(guildId, poll);
   return interaction.update({ content: `✅ Poll posted in <#${channel.id}>.`, components: [] });
@@ -243,30 +253,36 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false, 
     `🎲 ${campaignMembers(campaign).map(mentionUser).join(" ")} — the next session of **${campaign.name}** is on <t:${unix}:F> (<t:${unix}:R>)!` +
     (url ? `\n📅 Event: ${url}` : "") +
     (url && heldIn ? `\n🔊 Voice channel: <#${heldIn}>` : "") +
-    (url && warning ? `\n⚠️ The event is not held in the voice channel: ${warning}.` : "") +
-    (eventError ? `\n⚠️ The Discord event could not be created (${eventError}), but the session is planned.` : "");
+    (url && warning ? `\n⚠️ The event is not held in the voice channel: ${warning}` : "") +
+    (eventError ? `\n⚠️ The Discord event could not be created, but the session is planned: ${eventError}` : "");
   const channel = interaction.channel ?? (await ctx.client?.channels?.fetch(poll.channelId).catch(() => null));
   let announcementError = null;
   if (channel?.send) {
     try {
       await channel.send({ content: announcement, allowedMentions: { users: campaignMembers(campaign) } });
     } catch (err) {
-      announcementError = err?.message ?? String(err);
+      announcementError = asSentence(explainError(err, interaction.guild ?? channel.guild, channel, postPermissionsFor(channel)));
       ctx.log?.warn?.("Could not announce the planned session:", announcementError);
     }
   } else {
-    announcementError = "the announcement channel is unavailable";
+    announcementError = "the poll's channel is no longer available to the bot.";
   }
 
+  let pollError = null;
   try {
     const pollMessage = await channel?.messages?.fetch(poll.id);
     await pollMessage?.edit({ content: "", embeds: [buildDecidedEmbed(poll, at, url)], components: [] });
   } catch (err) {
     ctx.log?.debug?.("Could not update the poll message:", err?.message ?? err);
+    if (isPermissionError(err)) pollError = asSentence(explainError(err, interaction.guild ?? channel?.guild, channel, POLL_PERMISSIONS));
   }
   const foundry = world.ok ? `world \`${campaign.world}\` has the date as its next session` : `⚠️ the next session could not be set on world \`${campaign.world}\` (${world.reason})`;
-  const announced = announcementError ? `⚠️ the announcement failed (${announcementError})` : `The session is announced${eventError ? "; the event could not be created" : " and the event is created"}`;
-  const done = `✅ Decided: <t:${unix}:F>. ${announced}, and ${foundry}.`;
+  const announced = announcementError ? "⚠️ The announcement could not be posted" : `The session is announced${eventError ? "; the event could not be created" : " and the event is created"}`;
+  const done =
+    `✅ Decided: <t:${unix}:F>. ${announced}, and ${foundry}.` +
+    (announcementError ? `\n⚠️ Announcement: ${announcementError}` : "") +
+    (eventError && announcementError ? `\n⚠️ Event: ${eventError}` : "") +
+    (pollError ? `\n⚠️ The poll message could not be updated with the result: ${pollError}` : "");
   // A voice channel was picked for a campaign without a default: offer to keep it.
   if (picked && voiceChannel && !state.campaign(guildId, campaign.id)?.voiceChannel) {
     const question = defaultVoiceQuestion(campaign, voiceChannel);

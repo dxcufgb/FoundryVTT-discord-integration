@@ -141,9 +141,9 @@ async function planSession(interaction, ctx, campaign, at, voiceChannel) {
   }
   if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
   const lines = [
-    url ? `\n📅 Event: ${url}` : `\n⚠️ The Discord event could not be created (${error}), but the session is planned.`,
+    url ? `\n📅 Event: ${url}` : `\n⚠️ The Discord event could not be created, but the session is planned: ${error}`,
     url && heldIn ? `\n🔊 Voice channel: <#${heldIn}>` : "",
-    url && warning ? `\n⚠️ The event is not held in the voice channel: ${warning}.` : "",
+    url && warning ? `\n⚠️ The event is not held in the voice channel: ${warning}` : "",
     world.ok ? `\nWorld \`${campaign.world}\` has the date as its next session in Foundry.` : `\n⚠️ Could not set it on world \`${campaign.world}\` in Foundry (${world.reason}).`,
   ];
   return announcement(campaign, at, "", lines.join(""));

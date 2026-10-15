@@ -181,7 +181,7 @@ test("planning poll with a default voice channel the bot cannot connect to: exte
   assert.equal("channel" in env.created[0], false);
   const announcement = env.sent.at(-1).content;
   assert.match(announcement, /Event: https:\/\/discord\.com\/events\/g1\/e1/);
-  assert.match(announcement, /not held in the voice channel: the bot lacks \*\*Connect\*\* in <#vc9>/);
+  assert.match(announcement, /not held in the voice channel: the bot lacks \*\*Connect\*\* in <#vc9>\. An administrator can add it in <#vc9> → \*Edit Channel → Permissions\* \(add the bot's role and allow it\), or under \*Server Settings → Roles →\* the bot's role; .*Then plan the session again\./);
   assert.doesNotMatch(announcement, /🔊|could not be created/);
   assert.match(last(time).content, /event is created/);
   assert.equal(env.state.campaign("g1", "lost-mines").nextSession.source, "event");
@@ -205,7 +205,7 @@ test("Discord refusing the voice event falls back to an external event", async (
   const set = await command(env, { command: "session", subcommand: "set", options: { campaign: "lost-mines", when: "2026-03-07 19:00" }, userId: "dm1" });
   assert.equal(env.created.length, 1);
   assert.equal(env.created[0].entityType, GuildScheduledEventEntityType.External);
-  assert.match(last(set).content, /not held in the voice channel: Discord refused an event in <#vc9>: Missing Permissions/);
+  assert.match(last(set).content, /not held in the voice channel: Discord refused \(Missing Permissions\): the bot needs \*\*View Channel, Connect\*\* in <#vc9>\. An administrator can add them in <#vc9> → \*Edit Channel → Permissions\*/);
 });
 
 test("/campaign voice-channel shows, sets and clears the default; create and edit take it too", async () => {

@@ -6,6 +6,7 @@ import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { commandMap, requiresAdmin } from "./commands/index.js";
 import { handlePollComponent } from "./commands/planningPoll.js";
 import { handleSessionComponent } from "./commands/session.js";
+import { isPermissionError, permissionProblem, POLL_PERMISSIONS, postPermissionsFor, REQUIRED_PERMISSIONS } from "./health.js";
 import { handleVoiceDefault } from "./sessionEvents.js";
 import { GUILD_ONLY_MESSAGE, isGuildAdministrator, NOT_ADMIN_MESSAGE } from "./permissions.js";
 
@@ -45,7 +46,7 @@ async function runSafely(run, interaction, what, log) {
     await run();
   } catch (err) {
     log.error(`${what} failed:`, err);
-    const payload = { content: "Something went wrong while running that command. Check the bot's log.", flags: MessageFlags.Ephemeral };
+    const payload = { content: failureMessage(err, interaction), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
     try {
       if (interaction.deferred || interaction.replied) await interaction.editReply({ content: payload.content });
       else await interaction.reply(payload);
@@ -53,6 +54,21 @@ async function runSafely(run, interaction, what, log) {
       // nothing more we can do
     }
   }
+}
+
+/** What to tell the user when a command failed: for a permission Discord refused, which one and where to add it. */
+export function failureMessage(err, interaction) {
+  if (!isPermissionError(err)) return "Something went wrong while running that command. Check the bot's log.";
+  const guild = interaction.guild;
+  const channel = interaction.channel?.id ? interaction.channel : null;
+  const here = channel ? permissionProblem(guild, channel, postPermissionsFor(channel, POLL_PERMISSIONS)) : null;
+  const server = permissionProblem(guild, null, REQUIRED_PERMISSIONS);
+  if (here || server) return `⚠️ Discord refused that because ${[here, server].filter(Boolean).join(" Also, ")}`;
+  return (
+    `⚠️ Discord refused that: the bot is missing a permission (${err?.message ?? err}). ` +
+    `Check the bot's role under *Server Settings → Roles*${channel ? ` and <#${channel.id}> → *Edit Channel → Permissions*` : ""}; ` +
+    "the bot needs View Channel, Send Messages, Send Messages in Threads, Embed Links, Read Message History and Create Events (and View Channel and Connect in a voice channel used for events)."
+  );
 }
 
 async function handleAutocomplete(interaction, ctx, { log }) {
