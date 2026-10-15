@@ -8,13 +8,13 @@ The bot runs on the **same machine as Foundry VTT** so it can reach Foundry on i
 2. **General Information** → copy the **Application ID**. This is `DISCORD_CLIENT_ID`.
 3. **Bot** → click **Reset Token**, copy the token. This is `DISCORD_TOKEN`. Treat it like a password.
 4. Recommended: still under **Bot** → *Privileged Gateway Intents*, **turn on *Server Members Intent*** and save (leave *Presence* and *Message Content* off). The bot uses it only to find each server's administrators for the [update notice](#update-notices), and only requests it when `UPDATE_NOTIFY` is `admins` (the default). Without it the bot still runs: Discord refuses the intent, the bot logs one warning (`The "Server Members Intent" is not enabled for this bot, so update notices will go to server owners only …`), connects again without it and sends update notices to server owners only.
-5. **Installation** → under *Install Link* choose *Discord Provided Link*, and under *Default Install Settings → Guild Install* add the scopes `applications.commands` and `bot`, with these bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Embed Links**, **Create Events** (for `/planning-poll`) and, if you want the bot to ping a role, **Mention @everyone, @here and All Roles** (or make that role mentionable).
+5. **Installation** → under *Install Link* choose *Discord Provided Link*, and under *Default Install Settings → Guild Install* add the scopes `applications.commands` and `bot`, with these bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Embed Links**, **Create Events** (for `/planning-poll` and `/session set`), **Connect** (so those events can be held in a voice channel) and, if you want the bot to ping a role, **Mention @everyone, @here and All Roles** (or make that role mentionable).
 6. Open the install link in your browser and add the bot to your server.
 
 If you prefer to build the invite link yourself:
 
 ```
-https://discord.com/oauth2/authorize?client_id=<APPLICATION ID>&scope=bot+applications.commands&permissions=17867064101888
+https://discord.com/oauth2/authorize?client_id=<APPLICATION ID>&scope=bot+applications.commands&permissions=17867065150464
 ```
 
 ## 2. Install on Linux (guided installer)

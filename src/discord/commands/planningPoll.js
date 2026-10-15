@@ -222,7 +222,7 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false, 
   if (!state.deletePoll(guildId, poll.id)) return interaction.followUp(ephemeral(NO_POLL_MESSAGE));
   const reply = (content, components = []) => (modal ? interaction.editReply({ content, allowedMentions: { parse: [] } }) : interaction.editReply({ content, components, allowedMentions: { parse: [] } }));
 
-  const { event, url, error: eventError } = await scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, "Planned with a poll.");
+  const { event, url, error: eventError, warning, voiceChannel: heldIn } = await scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, "Planned with a poll.");
   const session = createSession({ at, source: event ? "event" : "poll", eventId: event?.id ?? null, eventUrl: url, setBy: interaction.user.id }, { now });
   if (event) Object.assign(session, { eventName: event.name ?? null, eventCreated: true });
   state.updateCampaign(guildId, campaign.id, (c) => {
@@ -242,7 +242,8 @@ async function finalize(interaction, ctx, pollId, date, clock, { modal = false, 
   const announcement =
     `🎲 ${campaignMembers(campaign).map(mentionUser).join(" ")} — the next session of **${campaign.name}** is on <t:${unix}:F> (<t:${unix}:R>)!` +
     (url ? `\n📅 Event: ${url}` : "") +
-    (url && voiceChannel ? `\n🔊 Voice channel: <#${voiceChannel}>` : "") +
+    (url && heldIn ? `\n🔊 Voice channel: <#${heldIn}>` : "") +
+    (url && warning ? `\n⚠️ The event is not held in the voice channel: ${warning}.` : "") +
     (eventError ? `\n⚠️ The Discord event could not be created (${eventError}), but the session is planned.` : "");
   const channel = interaction.channel ?? (await ctx.client?.channels?.fetch(poll.channelId).catch(() => null));
   let announcementError = null;

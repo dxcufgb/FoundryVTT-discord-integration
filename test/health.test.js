@@ -55,7 +55,7 @@ test("a missing applications.commands scope means reinstall, with the invite lin
   await checkGuildHealth(e.guild, e.ctx);
   assert.match(e.sent[0].content, /has to be reinstalled/);
   assert.ok(e.sent[0].content.includes(inviteUrl("123")));
-  assert.match(inviteUrl("123"), /scope=bot\+applications\.commands&permissions=\d+/);
+  assert.match(inviteUrl("123"), /scope=bot\+applications\.commands&permissions=17867065150464$/);
   // other API errors are not taken for a missing scope
   const other = env({ scopeError: 40001 });
   await checkGuildHealth(other.guild, other.ctx);

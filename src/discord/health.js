@@ -16,8 +16,24 @@ export const REQUIRED_PERMISSIONS = Object.freeze([
   ["CreateEvents", "Create Events"],
 ]);
 
-/** Bot permissions the invite link asks for: the required ones plus Mention @everyone/@here/All Roles (for the role ping). */
-export const INVITE_PERMISSIONS = new PermissionsBitField([...REQUIRED_PERMISSIONS.map(([flag]) => PermissionFlagsBits[flag]), PermissionFlagsBits.MentionEveryone]).bitfield;
+// What Discord wants in the channel itself before the bot can hold an event in a voice or stage channel.
+export const VOICE_EVENT_PERMISSIONS = Object.freeze([
+  ["ViewChannel", "View Channel"],
+  ["Connect", "Connect"],
+]);
+export const STAGE_EVENT_PERMISSIONS = Object.freeze([
+  ...VOICE_EVENT_PERMISSIONS,
+  ["ManageChannels", "Manage Channels"],
+  ["MuteMembers", "Mute Members"],
+  ["MoveMembers", "Move Members"],
+]);
+
+/** Bot permissions the invite link asks for: the required ones, Connect (events in voice channels) and Mention @everyone/@here/All Roles (for the role ping). */
+export const INVITE_PERMISSIONS = new PermissionsBitField([
+  ...REQUIRED_PERMISSIONS.map(([flag]) => PermissionFlagsBits[flag]),
+  PermissionFlagsBits.Connect,
+  PermissionFlagsBits.MentionEveryone,
+]).bitfield;
 
 export function inviteUrl(clientId) {
   return `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=${OAuth2Scopes.Bot}+${OAuth2Scopes.ApplicationsCommands}&permissions=${INVITE_PERMISSIONS}`;
@@ -31,6 +47,14 @@ export function missingPermissions(guild, channel = null) {
   if (!perms) return [];
   const flags = channel ? REQUIRED_PERMISSIONS.filter(([flag]) => !["CreateEvents"].includes(flag)) : REQUIRED_PERMISSIONS;
   return flags.filter(([flag]) => !perms.has(PermissionFlagsBits[flag])).map(([, label]) => label);
+}
+
+/** Labels of the permissions the bot lacks to hold an event in this voice or stage channel ([] when it cannot tell). */
+export function missingEventPermissions(guild, channel, stage = false) {
+  const me = guild.members?.me;
+  const perms = me && channel?.permissionsFor ? channel.permissionsFor(me) : null;
+  if (!perms) return [];
+  return (stage ? STAGE_EVENT_PERMISSIONS : VOICE_EVENT_PERMISSIONS).filter(([flag]) => !perms.has(PermissionFlagsBits[flag])).map(([, label]) => label);
 }
 
 /** Does Discord refuse the bot access to this server's application commands, i.e. is the `applications.commands` scope missing? */

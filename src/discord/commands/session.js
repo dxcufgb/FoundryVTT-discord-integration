@@ -126,7 +126,7 @@ function announcement(campaign, at, extra = "", after = "") {
  */
 async function planSession(interaction, ctx, campaign, at, voiceChannel) {
   const now = ctx.now ?? (() => new Date());
-  const { event, url, error } = await scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, "Planned with /session set.");
+  const { event, url, error, warning, voiceChannel: heldIn } = await scheduleSessionEvent(interaction, ctx, campaign, at, voiceChannel, "Planned with /session set.");
   const session = createSession({ at, source: event ? "event" : "manual", eventId: event?.id ?? null, eventUrl: url, setBy: interaction.user?.id ?? null }, { now });
   if (event) Object.assign(session, { eventName: event.name ?? null, eventCreated: true });
   ctx.state.updateCampaign(interaction.guildId, campaign.id, (c) => {
@@ -142,7 +142,8 @@ async function planSession(interaction, ctx, campaign, at, voiceChannel) {
   if (!world.ok) ctx.log?.warn?.(`Could not set the next session on world ${campaign.world}: ${world.reason}`);
   const lines = [
     url ? `\n📅 Event: ${url}` : `\n⚠️ The Discord event could not be created (${error}), but the session is planned.`,
-    url && voiceChannel ? `\n🔊 Voice channel: <#${voiceChannel}>` : "",
+    url && heldIn ? `\n🔊 Voice channel: <#${heldIn}>` : "",
+    url && warning ? `\n⚠️ The event is not held in the voice channel: ${warning}.` : "",
     world.ok ? `\nWorld \`${campaign.world}\` has the date as its next session in Foundry.` : `\n⚠️ Could not set it on world \`${campaign.world}\` in Foundry (${world.reason}).`,
   ];
   return announcement(campaign, at, "", lines.join(""));
