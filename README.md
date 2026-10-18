@@ -1,5 +1,10 @@
 # Foundry VTT Discord integration
 
+[![Foundry v13](https://img.shields.io/github/v/release/dxcufgb/FoundryVTT-discord-integration?label=Foundry%20v13&logo=foundryvirtualtabletop&color=ff6400)](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/dxcufgb)\
+[![CI](https://img.shields.io/github/actions/workflow/status/dxcufgb/FoundryVTT-discord-integration/ci.yml?branch=main&label=CI)](https://github.com/dxcufgb/FoundryVTT-discord-integration/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/dxcufgb/FoundryVTT-discord-integration)](LICENSE)
+
 A small Discord bot that watches a [Foundry VTT](https://foundryvtt.com) **v13** server running on the same machine and tells your Discord server what is going on.
 
 **Foundry VTT:** v13 · **Node.js:** 20 or newer · **Discord:** slash commands, no message content access needed
