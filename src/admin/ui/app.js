@@ -217,11 +217,12 @@
   }
 
   // A dropdown of channels or roles; a stored one that no longer exists stays selectable so saving keeps it.
-  function picker(name, current, list, noneText, label) {
+  // ariaLabel only for a dropdown without a visible <label> around it.
+  function picker(name, current, list, noneText, label, ariaLabel = null) {
     const options = [el("option", { value: "", text: noneText })];
     if (current && !list.some((x) => x.id === current.id)) options.push(el("option", { value: current.id, text: `${current.id} (not found)` }));
     for (const x of list) options.push(el("option", { value: x.id, text: label(x) }));
-    const select = el("select", { name, "aria-label": name }, options);
+    const select = el("select", ariaLabel ? { name, "aria-label": ariaLabel } : { name }, options);
     select.value = current?.id ?? "";
     return select;
   }
@@ -272,9 +273,9 @@
     if (!g.options) {
       cells.push(el("td", { text: channelText(c.channel) }), el("td", { text: channelText(c.voiceChannel) }));
     } else {
-      const channel = picker("channel", c.channel, g.options.textChannels, "— session channel —", channelLabel);
-      const voice = picker("voiceChannel", c.voiceChannel, g.options.voiceChannels, "— ask when planning —", channelLabel);
-      const save = el("button", { type: "button", class: "secondary small", text: "Save" });
+      const channel = picker("channel", c.channel, g.options.textChannels, "— session channel —", channelLabel, `Channel of ${c.name}`);
+      const voice = picker("voiceChannel", c.voiceChannel, g.options.voiceChannels, "— ask when planning —", channelLabel, `Voice channel of ${c.name}`);
+      const save = el("button", { type: "button", class: "secondary small", text: "Save", "aria-label": `Save the channels of ${c.name}` });
       save.addEventListener("click", async () => {
         save.disabled = true;
         try {
