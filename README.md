@@ -25,6 +25,8 @@ On request (slash commands, nothing is posted automatically) the bot also looks 
 - `/updates compatibility` answers "could I upgrade to the next major Foundry?" by checking every installed system and module against that version: ready, needs an update first, untested, not ready, unknown.
 - `/modules unused` lists the installed modules that **no world on the server has enabled**, read straight from each world's settings database; `/modules usage` shows the active-module count per world or where one module is used.
 
+After a played session, the bot can also post a short **session summary** to the campaign's channel; see [Session summaries](#session-summaries).
+
 Each message type can go to its own channel, several types can share a channel, and a **default** channel catches anything without its own. The bot can sit in more than one Discord server; channels are configured per server.
 
 **Campaigns** bind Discord users to worlds: each campaign belongs to one Discord server, is connected to exactly one Foundry world and has exactly one **DM**; any number of server members can be its players, and a member can be in any number of campaigns. The DM (or an administrator) plans the next session with a date and time, or by pasting a link to a Discord scheduled event, whose start time is taken over.
@@ -121,6 +123,35 @@ Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `np
 
 Details for every command and option: **[docs/COMMANDS.md](docs/COMMANDS.md)**.
 
+## Session summaries
+
+When a world goes back to the setup screen, the bot posts that world's **session summary** to the channel of every campaign bound to the world (in every server). The summaries are written by the Foundry module **dxcufgbs-session-summary** ([FoundryVTT-session-summary](https://github.com/dxcufgb/FoundryVTT-session-summary)) when the GM ends a session: kills, dice, scenes, achievements, as ready-to-post Discord text.
+
+- **Needs the module.** The bot reads what the module exported into Foundry's Data folder (`Data/session-summaries/`, or `SESSION_SUMMARY_DIR`); it never writes there. Without the module, without `FOUNDRY_DATA_PATH`, or with broken files, nothing is posted and **the bot works exactly as before**.
+- **What is posted:** every summary of the stopped world that ended within the last 24 hours, is not a mid-session "Export now", and was not posted to that channel before; oldest first. Each summary is posted once per channel; a failed post is tried again the next time the world stops.
+- **Where:** only to a campaign's own channel (`/campaign create … channel:` or `/campaign edit`). A world without a campaign, or a campaign without a channel, gets nothing: there is no fallback to the server's default or session channel.
+- It also works with world announcements turned off in `/monitor`, and when the GM goes back to setup and straight into another world between two checks. On the [administration page](#administration-page) it can be turned off, the 24 hours changed, recent summaries checked and a world's summaries posted by hand.
+
+## Administration page
+
+An optional, password-protected web page, like the admin pages of the Foundry world backup and the release proxy, shows the bot's state and changes its settings without Discord:
+
+- **Overview:** Foundry up/down, the active world, Foundry's version, the Discord connection and the configuration from `.env` (never the token).
+- **Monitoring:** the announcement switches of `/monitor` and the update tracking of `/updates settings`, and the restart window.
+- **Servers and campaigns:** each server's channel routing, mention and GM roles, its campaigns with their world, channels, players and next session.
+- **Session summaries:** on/off, the age limit, the summary folder, the recent summaries and where they were posted, and *Post now*.
+- **Admin password.**
+
+It is off by default. To turn it on, set `ADMIN_PORT` (for example `ADMIN_PORT=8486`) in `.env`, set a password and restart the bot:
+
+```
+cd /opt/foundryvtt-discord-integration && sudo node scripts/admin-password.js   # Linux installation
+npm run admin-password                                                          # from source / Windows
+sudo systemctl restart foundryvtt-discord-bot
+```
+
+Then open `https://<this machine>:8486/`. The page uses HTTPS with a self-signed certificate the bot makes once (`data/admin-tls.crt`), so the browser warns the first time; the login page offers the certificate for download so it can be trusted. Five wrong passwords lock an address out for five minutes. More options (own certificate, reverse proxy, extra host names) are in [`.env.example`](.env.example). On Windows, allow the port in the firewall if the page should be reachable from other machines.
+
 ## Configuration
 
 All settings are environment variables, read from `.env` (see [`.env.example`](.env.example)):
@@ -139,9 +170,12 @@ All settings are environment variables, read from `.env` (see [`.env.example`](.
 | `DOWN_AFTER_FAILURES` | `2` | Failed checks in a row before Foundry counts as down. |
 | `TIMEZONE` | `UTC` | Default timezone for restart windows (IANA name, e.g. `Europe/Stockholm`). |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
+| `SESSION_SUMMARY_DIR` | – | Where the dxcufgbs-session-summary module writes its summaries, if not `session-summaries` in Foundry's Data folder. Absolute, or relative to the Data folder. |
+| `ADMIN_PORT` | – | Port of the [administration page](#administration-page). Empty = off. Also needs a password (`npm run admin-password`). |
+| `ADMIN_HOST`, `ADMIN_HOSTS`, `ADMIN_TLS`, `ADMIN_TLS_CERT`, `ADMIN_TLS_KEY`, `ADMIN_TRUST_PROXY` | | Listening address, extra host names, HTTPS and reverse-proxy options of the page; see [`.env.example`](.env.example). |
 | `UPDATE_NOTIFY` | `admins` | Who gets a direct message with the changelog after the bot was updated: `admins` (owner and every Administrator of each server; needs the Server Members Intent, otherwise the bot warns and messages owners only), `owner` or `off`. |
 
-`npm run check-config` validates `.env`, probes Foundry, counts the installed packages and worlds and tells how many modules no world uses, without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
+`npm run check-config` validates `.env`, probes Foundry, counts the installed packages and worlds, tells how many modules no world uses, whether the session summary folder exists and whether the administration page is set up, without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
 
 ## Development
 
@@ -151,7 +185,7 @@ npm test            # unit tests (node:test, no extra tooling)
 npm start           # run the bot with the .env in this folder
 ```
 
-Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, the LevelDB reader (against databases written by Foundry's own LevelDB binding, see `scripts/make-leveldb-fixtures.js`), world/module usage, the compatibility and update logic (with a fake foundryvtt.com), campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings), and the self-updater's release check (semantic version order, asset choice, checksum parsing and verification, the token staying on api.github.com, with a fake GitHub). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd (including an automatic update to the latest release through the systemd timer's service), and compiles, silently installs, auto-updates and uninstalls the Windows setup.
+Tests cover the configuration loader, the state store, restart-window maths (including DST and windows that cross midnight), update detection and the announce-once guarantee, the up/down state machine, message routing, the administrator check on commands, the LevelDB reader (against databases written by Foundry's own LevelDB binding, see `scripts/make-leveldb-fixtures.js`), world/module usage, the compatibility and update logic (with a fake foundryvtt.com), campaigns and the session reminders (time parsing in a timezone, Discord event links, the 15-minute world check, world-ready pings), session summaries (missing, empty and broken files, which summaries are due, posting once per channel, retries), the administration page (login, lockout, CSRF and host checks, settings, HTTPS) and the self-updater's release check (semantic version order, asset choice, checksum parsing and verification, the token staying on api.github.com, with a fake GitHub). CI runs them on Linux and Windows with Node 20 and 22, runs the Linux installer against a real systemd (including an automatic update to the latest release through the systemd timer's service), and compiles, silently installs, auto-updates and uninstalls the Windows setup.
 
 ### Releasing
 

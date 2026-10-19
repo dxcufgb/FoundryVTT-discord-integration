@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Session summaries.** When a Foundry world goes back to setup, the bot posts that world's session summary, written by the Foundry module [dxcufgbs-session-summary](https://github.com/dxcufgb/FoundryVTT-session-summary), to the channel of every campaign bound to the world. Only sessions that ended within the last 24 hours, never a mid-session export, each one once per channel (a failed post is retried the next time the world stops), oldest first. A campaign without a channel gets nothing. Works with world announcements turned off. The new optional `SESSION_SUMMARY_DIR` points at the module's folder if it is not `session-summaries` in Foundry's Data folder; `npm run check-config` reports whether it exists. Without the module the bot works exactly as before.
+- **Administration page** (optional, off by default), like the ones of the Foundry world backup and the release proxy: a password-protected HTTPS page on its own port (`ADMIN_PORT`) with an overview of Foundry, Discord and the configuration, the monitoring switches, every server's channels and campaigns, the session summary settings (on/off, age limit, recent summaries, *Post now*) and the admin password. Set the password with `npm run admin-password`. See [Administration page](README.md#administration-page).
+
 ## [1.4.2] - 2026-10-15
 
 ### Fixed

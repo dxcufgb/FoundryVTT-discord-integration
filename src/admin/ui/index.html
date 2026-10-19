@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>FoundryVTT Discord Bot</title>
+  <link rel="stylesheet" href="/_admin/app.css">
+  <script src="/_admin/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1><a href="#/" id="home-link"><span class="brand-name">FoundryVTT Discord Bot</span> <span class="sub">Administration</span></a></h1>
+    <nav class="top-actions" id="top-actions" hidden aria-label="Settings and session">
+      <div class="menu-wrap">
+        <button type="button" id="settings-button" class="icon-button secondary" aria-haspopup="menu"
+          aria-expanded="false" aria-controls="settings-menu" aria-label="Settings" title="Settings">
+          <!-- gear icon: Feather Icons (MIT) -->
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <div id="settings-menu" class="menu" role="menu" aria-labelledby="settings-button" hidden>
+          <a role="menuitem" href="#/">Overview</a>
+          <a role="menuitem" href="#/monitoring">Monitoring</a>
+          <a role="menuitem" href="#/servers">Servers and campaigns</a>
+          <a role="menuitem" href="#/session-summaries">Session summaries</a>
+          <a role="menuitem" href="#/password">Admin password</a>
+        </div>
+      </div>
+      <button type="button" id="logout" class="secondary">Log out</button>
+    </nav>
+  </header>
+
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+
+  <main>
+    <section id="login-view" class="card narrow login" hidden>
+      <h2>Log in</h2>
+      <p class="hint">Sign in with the administration password (set with <code>npm run admin-password</code>).</p>
+      <form id="login-form" method="post" action="/_admin/">
+        <!-- the page has no user names; this fixed one lets password managers save and fill the password -->
+        <input type="text" name="username" autocomplete="username" value="admin" hidden>
+        <label>Password <input type="password" id="login-password" name="password" autocomplete="current-password" required autofocus></label>
+        <p class="error" id="login-error" hidden></p>
+        <button type="submit" class="wide">Log in</button>
+      </form>
+      <p class="hint cert-hint" id="cert-hint" hidden>Browser not offering to save the password? Browsers only save
+        passwords on pages whose certificate they trust, and this page uses the bot's own.
+        <a href="/_admin/certificate.crt" download="foundryvtt-discord-integration.crt">Download the certificate</a>,
+        add it to your trusted certificates, then restart the browser.</p>
+    </section>
+
+    <div id="app-view" hidden>
+      <section class="card page" data-page="overview">
+        <div class="section-head">
+          <h2>Overview</h2>
+          <div class="buttons"><button type="button" id="refresh" class="secondary">Refresh</button></div>
+        </div>
+        <div class="grid stats">
+          <div class="stat"><span class="stat-label">Foundry</span><span id="foundry-badge" class="badge"></span><small id="foundry-since"></small></div>
+          <div class="stat"><span class="stat-label">World</span><strong id="foundry-world"></strong><small id="foundry-world-since"></small></div>
+          <div class="stat"><span class="stat-label">Foundry version</span><strong id="foundry-version"></strong></div>
+          <div class="stat"><span class="stat-label">Discord</span><span id="discord-badge" class="badge"></span><small id="discord-user"></small></div>
+        </div>
+        <h3>Configuration</h3>
+        <p class="hint">From <code>.env</code>; change it there and restart the bot. The Discord token is never shown.</p>
+        <div class="table-wrap">
+          <table id="config-table" class="config"><tbody></tbody></table>
+        </div>
+      </section>
+
+      <section class="card page" data-page="monitoring" hidden>
+        <p class="back"><a href="#/">← Overview</a></p>
+        <h2>Monitoring</h2>
+        <p class="hint">What the bot announces in Discord. The same switches as <code>/monitor</code> and
+          <code>/updates settings</code>; changes apply at once.</p>
+        <form id="monitor-form">
+          <fieldset>
+            <legend>Announcements</legend>
+            <label class="check"><input type="checkbox" name="status"> Foundry up / down</label>
+            <label class="check"><input type="checkbox" name="world"> World started / stopped</label>
+            <label class="check"><input type="checkbox" name="updates"> Foundry, system and module updates</label>
+          </fieldset>
+          <fieldset>
+            <legend>Update tracking</legend>
+            <label class="check"><input type="checkbox" name="trackFoundry"> Foundry itself</label>
+            <label class="check"><input type="checkbox" name="trackSystems"> Game systems</label>
+            <label class="check"><input type="checkbox" name="trackModules"> Modules</label>
+            <label class="check"><input type="checkbox" name="announceNewPackages"> Newly installed packages</label>
+            <label class="check"><input type="checkbox" name="announceRemovedPackages"> Removed packages</label>
+          </fieldset>
+          <div class="buttons"><button type="submit">Save</button></div>
+        </form>
+        <h3>Restart window</h3>
+        <p id="restart-window"></p>
+        <p class="hint">Set with <code>/restart-window</code> in Discord.</p>
+      </section>
+
+      <section class="card page" data-page="servers" hidden>
+        <p class="back"><a href="#/">← Overview</a></p>
+        <h2>Servers and campaigns</h2>
+        <p class="hint">Where each Discord server gets which messages, and its campaigns. Change them with
+          <code>/channel</code>, <code>/gm-role</code> and <code>/campaign</code> in Discord.</p>
+        <div id="guilds"></div>
+        <p id="no-guilds" class="empty" hidden>The bot is not in any Discord server yet.</p>
+      </section>
+
+      <section class="card page" data-page="session-summaries" hidden>
+        <p class="back"><a href="#/">← Overview</a></p>
+        <h2>Session summaries</h2>
+        <p class="hint">When a world goes back to setup, the bot posts the session summaries the Foundry module
+          <strong>dxcufgbs-session-summary</strong> wrote for it, to the channel of every campaign bound to that world
+          (a campaign without a channel gets none). Each summary is posted once per channel. Without the module nothing
+          is posted and the bot works as before.</p>
+        <p id="summary-folder"></p>
+        <ul id="summary-problems" class="results" hidden></ul>
+        <form id="summary-form">
+          <label class="check"><input type="checkbox" name="enabled"> Post session summaries</label>
+          <label>Only sessions that ended within the last (hours)
+            <input type="number" name="maxAgeHours" min="1" max="720" step="1" required>
+            <small>Older summaries are never posted, also not for a campaign that was bound to the world later.</small></label>
+          <div class="buttons"><button type="submit">Save</button></div>
+        </form>
+        <h3>Post now</h3>
+        <p class="hint">Posts what is due for one world right away, as if it had just stopped (summaries that were
+          already posted are skipped).</p>
+        <form id="summary-post-form" class="inline">
+          <select name="world" aria-label="World"></select>
+          <button type="submit" class="secondary">Post now</button>
+        </form>
+        <h3>Recent summaries</h3>
+        <div class="table-wrap">
+          <table id="summaries">
+            <thead><tr><th>Session</th><th>World</th><th>Ended</th><th>Posted</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="no-summaries" class="empty" hidden>No session summaries found.</p>
+      </section>
+
+      <section class="card narrow centered page" data-page="password" hidden>
+        <p class="back"><a href="#/">← Overview</a></p>
+        <h2>Admin password</h2>
+        <form id="password-form">
+          <input type="text" name="username" autocomplete="username" value="admin" hidden>
+          <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+          <label>New password <input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+          <label>Repeat new password <input type="password" name="repeat" autocomplete="new-password" minlength="8" required></label>
+          <button type="submit">Change password</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <footer id="app-footer" hidden>
+    <p class="footer-text" id="footer-version" hidden></p>
+    <p class="footer-credit">Built by <strong>Dxcufgb</strong> 2026</p>
+  </footer>
+</body>
+</html>

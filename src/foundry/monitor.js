@@ -12,6 +12,10 @@
 //   { type: "restartOverdue", window, downSince }         still down after window + grace
 //   { type: "foundryUpdated", version, previousVersion }
 //   { type: "packageUpdated" | "packageInstalled" | "packageRemoved", pkg }
+//
+// onWorldStopped(worldId) runs whenever a world goes back to setup (also when the
+// next poll already sees another world), and also when world announcements are
+// turned off (it posts the session summaries).
 
 import { diffPackages, notifiedKey, packageKey, removedKey } from "./updates.js";
 import { isInsideWindow, windowAt } from "../restartWindow.js";
@@ -25,15 +29,17 @@ export class FoundryMonitor {
    * @param {import("../state.js").StateStore} deps.state
    * @param {(event: object) => Promise<void>|void} deps.emit
    * @param {{downAfterFailures:number, packageScanEveryMs?:number}} deps.options
+   * @param {(worldId: string) => Promise<void>|void} [deps.onWorldStopped]  runs after a world went back to setup, whatever the announcement settings
    * @param {() => Date} [deps.now]
    * @param {{debug:Function,info:Function,warn:Function,error:Function}} [deps.log]
    */
-  constructor({ fetchStatus, scanPackages, readFoundryVersion = () => null, state, emit, options, now = () => new Date(), log = console }) {
+  constructor({ fetchStatus, scanPackages, readFoundryVersion = () => null, state, emit, onWorldStopped = null, options, now = () => new Date(), log = console }) {
     this.fetchStatus = fetchStatus;
     this.scanPackages = scanPackages;
     this.readFoundryVersion = readFoundryVersion;
     this.state = state;
     this.emit = emit;
+    this.onWorldStopped = onWorldStopped;
     this.options = { packageScanEveryMs: 5 * 60_000, ...options };
     this.now = now;
     this.log = log;
@@ -148,9 +154,22 @@ export class FoundryMonitor {
       this.log.info(`World on first check: ${world ?? "none"}`);
       return;
     }
-    if (!this.settings.enabled.world) return;
-    if (world) await this.send({ type: "worldStarted", world, previousWorld, status });
-    else await this.send({ type: "worldStopped", world: previousWorld, status });
+    if (this.settings.enabled.world) {
+      if (world) await this.send({ type: "worldStarted", world, previousWorld, status });
+      else await this.send({ type: "worldStopped", world: previousWorld, status });
+    }
+    // A switch (A → B) between two polls went through the setup screen too: A stopped.
+    if (previousWorld) await this.worldStopped(previousWorld);
+  }
+
+  /** Runs onWorldStopped; whatever it does, monitoring goes on. */
+  async worldStopped(worldId) {
+    if (!this.onWorldStopped || !worldId) return;
+    try {
+      await this.onWorldStopped(worldId);
+    } catch (err) {
+      this.log.warn(`after world ${worldId} stopped:`, err?.message ?? err);
+    }
   }
 
   // --- Foundry core version ---------------------------------------------------

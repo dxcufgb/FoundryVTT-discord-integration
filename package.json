@@ -11,7 +11,8 @@
     "start": "node src/index.js",
     "test": "node --test",
     "register-commands": "node scripts/register-commands.js",
-    "check-config": "node scripts/check-config.js"
+    "check-config": "node scripts/check-config.js",
+    "admin-password": "node scripts/admin-password.js"
   },
   "repository": {
     "type": "git",
