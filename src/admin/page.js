@@ -7,6 +7,8 @@
 //   PUT  /api/monitor                   announcement and update-tracking switches (state.monitor)
 //   PUT  /api/session-summaries         { enabled, maxAgeHours }
 //   POST /api/session-summaries/post    { world }: post that world's summaries now
+//   PUT  /api/guilds/<id>               { channels: { <type>: id|null }, mentionRole, gmRole } (as /channel, /gm-role)
+//   PUT  /api/guilds/<id>/campaigns/<c> { channel, voiceChannel } (as /campaign edit)
 //
 // Every response is no-store with a strict CSP (the page puts server values in with
 // textContent only). Every call but login needs the session cookie (HttpOnly,
@@ -19,11 +21,12 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { MESSAGE_TYPES, MONITORS } from "../state.js";
+import { emptyGuild, MESSAGE_TYPES, MONITORS } from "../state.js";
 import { describeWindow } from "../restartWindow.js";
 import { isCurrentSession } from "../campaigns.js";
 import { MAX_AGE_HOURS, postSessionSummaries, summaryOverview, summarySettings } from "../sessionSummaries.js";
 import { hashPassword, passwordProblem, saveAdminSettings, verifyPassword } from "./settings.js";
+import { findChannel, findRole, guildOptions, postingProblem, TEXT_CHANNEL_TYPES, VOICE_CHANNEL_TYPES, voiceProblem } from "./guilds.js";
 
 const UI_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -217,6 +220,8 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
         mentionRole: roleView(guild, g.mentionRole),
         gmRole: roleView(guild, g.gmRole),
         healthIssue: g.healthIssue ?? null,
+        // What the page can pick from; null when the bot is not in the server (nothing can be checked there).
+        options: guild ? guildOptions(guild) : null,
         campaigns: state.campaigns(id).map((c) => ({
           id: c.id,
           name: c.name,
@@ -276,6 +281,75 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
     const out = new Set();
     for (const id of Object.keys(ctx.state.data.guilds)) for (const c of ctx.state.campaigns(id)) out.add(c.world);
     return [...out].sort();
+  }
+
+  // --- channels and roles ------------------------------------------------------------
+
+  // A channel id from the page: null/"" clears it; the stored value may stay even if the channel is gone;
+  // anything else must be a channel of that kind in the server.
+  function pickChannel(guild, value, current, types, what) {
+    if (value === null || value === "") return null;
+    if (typeof value !== "string") throw new HttpError(400, `${what}: invalid channel`);
+    if (value === current) return value;
+    if (!findChannel(guild, value, types)) throw new HttpError(400, `${what}: that channel is not in this server or is the wrong kind`);
+    return value;
+  }
+
+  function pickRole(guild, value, current, what) {
+    if (value === null || value === "") return null;
+    if (typeof value !== "string") throw new HttpError(400, `${what}: invalid role`);
+    if (value === current) return value;
+    if (!findRole(guild, value)) throw new HttpError(400, `${what}: that role is not in this server`);
+    return value;
+  }
+
+  async function saveGuild(req, res, s, guild, body) {
+    const current = ctx.state.guild(guild.id);
+    const channels = body.channels ?? {};
+    if (!isObject(channels)) throw new HttpError(400, '"channels" must be an object');
+    const next = {};
+    for (const [type, value] of Object.entries(channels)) {
+      if (!MESSAGE_TYPES.includes(type)) throw new HttpError(400, `unknown message type "${type}"`);
+      next[type] = pickChannel(guild, value, current.channels[type] ?? null, TEXT_CHANNEL_TYPES, `${type} channel`);
+    }
+    const mentionRole = body.mentionRole === undefined ? undefined : pickRole(guild, body.mentionRole, current.mentionRole ?? null, "mention role");
+    const gmRole = body.gmRole === undefined ? undefined : pickRole(guild, body.gmRole, current.gmRole ?? null, "GM role");
+
+    const warnings = [];
+    for (const [type, id] of Object.entries(next)) {
+      if (id && id !== current.channels[type]) {
+        const problem = postingProblem(guild, findChannel(guild, id, TEXT_CHANNEL_TYPES));
+        if (problem && !warnings.includes(problem)) warnings.push(problem);
+      }
+    }
+    ctx.state.update((d) => {
+      d.guilds[guild.id] ??= emptyGuild();
+      const g = d.guilds[guild.id];
+      for (const [type, id] of Object.entries(next)) {
+        if (id) g.channels[type] = id;
+        else delete g.channels[type];
+      }
+      if (mentionRole !== undefined) g.mentionRole = mentionRole;
+      if (gmRole !== undefined) g.gmRole = gmRole;
+    });
+    log.info(`admin page: channels and roles of server ${guild.id} changed`);
+    return sendJson(res, 200, { warnings, ...(await state(s.csrf)) });
+  }
+
+  async function saveCampaignChannels(req, res, s, guild, campaignId, body) {
+    const campaign = ctx.state.campaign(guild.id, campaignId);
+    if (!campaign) throw new HttpError(404, "no such campaign");
+    const channel = body.channel === undefined ? undefined : pickChannel(guild, body.channel, campaign.channel ?? null, TEXT_CHANNEL_TYPES, "campaign channel");
+    const voice = body.voiceChannel === undefined ? undefined : pickChannel(guild, body.voiceChannel, campaign.voiceChannel ?? null, VOICE_CHANNEL_TYPES, "voice channel");
+    const warnings = [];
+    if (channel && channel !== campaign.channel) warnings.push(postingProblem(guild, findChannel(guild, channel, TEXT_CHANNEL_TYPES)));
+    if (voice && voice !== campaign.voiceChannel) warnings.push(voiceProblem(guild, findChannel(guild, voice, VOICE_CHANNEL_TYPES)));
+    ctx.state.updateCampaign(guild.id, campaign.id, (c) => {
+      if (channel !== undefined) c.channel = channel;
+      if (voice !== undefined) c.voiceChannel = voice;
+    });
+    log.info(`admin page: channels of campaign "${campaign.name}" (server ${guild.id}) changed`);
+    return sendJson(res, 200, { warnings: warnings.filter(Boolean), ...(await state(s.csrf)) });
   }
 
   // --- login ------------------------------------------------------------------------
@@ -345,6 +419,13 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
       });
       log.info("admin page: monitoring settings changed");
       return sendJson(res, 200, await state(s.csrf));
+    }
+
+    const g = /^\/api\/guilds\/(\d{5,25})(?:\/campaigns\/([a-z0-9-]{1,80}))?$/.exec(route);
+    if (g && method === "PUT") {
+      const guild = guildOf(g[1]);
+      if (!guild) throw new HttpError(404, "the bot is not in that server");
+      return g[2] ? saveCampaignChannels(req, res, s, guild, g[2], body) : saveGuild(req, res, s, guild, body);
     }
 
     if (route === "/api/session-summaries" && method === "PUT") {

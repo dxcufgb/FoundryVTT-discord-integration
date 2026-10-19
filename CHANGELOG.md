@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Administration page: edit channels and roles.** The *Servers and campaigns* page now changes each server's channel for every message type, the role pinged on unexpected downtime and the game master role, and each campaign's channel and voice channel, picked from the server's channels and roles. These are the same settings as `/channel`, `/gm-role` and `/campaign edit`. Saving warns, like those commands, when the bot lacks a permission in the chosen channel. A channel that was deleted in Discord stays selected until it is changed.
+
 ## [1.5.0] - 2026-10-19
 
 ### Added

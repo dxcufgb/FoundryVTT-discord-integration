@@ -210,31 +210,116 @@
   const channelText = (c) => (c ? (c.name ? `#${c.name}` : `channel ${c.id} (not found)`) : "–");
   const roleText = (r) => (r ? (r.name ? `@${r.name}` : `role ${r.id} (not found)`) : "–");
 
+  // A channel's name in a dropdown: #name, with its category, or marked as a thread / stage.
+  function channelLabel(c) {
+    const kind = c.thread ? " (thread)" : c.stage ? " (stage)" : "";
+    return `#${c.name}${kind}${c.parent ? ` – ${c.parent}` : ""}`;
+  }
+
+  // A dropdown of channels or roles; a stored one that no longer exists stays selectable so saving keeps it.
+  function picker(name, current, list, noneText, label) {
+    const options = [el("option", { value: "", text: noneText })];
+    if (current && !list.some((x) => x.id === current.id)) options.push(el("option", { value: current.id, text: `${current.id} (not found)` }));
+    for (const x of list) options.push(el("option", { value: x.id, text: label(x) }));
+    const select = el("select", { name, "aria-label": name }, options);
+    select.value = current?.id ?? "";
+    return select;
+  }
+
+  const roleLabel = (r) => `@${r.name}${r.managed ? " (bot role)" : ""}`;
+
+  // Saved; any permission warnings stay on screen longer.
+  function savedToast(data, what) {
+    const warnings = data.warnings ?? [];
+    toast(warnings.length ? `${what} saved, but: ${warnings.join(" ")}` : `${what} saved.`, warnings.length > 0);
+  }
+
+  function guildForm(g) {
+    const o = g.options;
+    const rows = Object.entries(MESSAGE_TYPES).map(([type, label]) => el("label", { text: `${label} ` }, [
+      picker(`channel-${type}`, g.channels[type], o.textChannels, type === "default" ? "— not posted —" : "— the default channel —", channelLabel),
+    ]));
+    rows.push(el("label", { text: "Ping on unexpected downtime " }, [picker("mentionRole", g.mentionRole, o.roles, "— nobody —", roleLabel)]));
+    rows.push(el("label", { text: "Game master role " }, [
+      picker("gmRole", g.gmRole, o.roles, "— none —", roleLabel),
+      el("small", { text: "Members with it may plan sessions with polls for every campaign." }),
+    ]));
+    const save = el("button", { type: "submit", text: "Save" });
+    const form = el("form", { class: "guild-form" }, [el("div", { class: "grid" }, rows), el("div", { class: "buttons" }, [save])]);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const channels = {};
+      for (const type of Object.keys(MESSAGE_TYPES)) channels[type] = form.elements[`channel-${type}`].value || null;
+      save.disabled = true;
+      try {
+        const data = await call("PUT", `guilds/${g.id}`, { channels, mentionRole: form.elements.mentionRole.value || null, gmRole: form.elements.gmRole.value || null });
+        render(data);
+        savedToast(data, `${g.name || "Server"} settings`);
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        save.disabled = false;
+      }
+    });
+    return form;
+  }
+
+  function campaignRow(g, c) {
+    const cells = [
+      el("td", { text: c.name }),
+      el("td", { text: c.worldTitle ? `${c.worldTitle} (${c.world})` : c.world }),
+    ];
+    if (!g.options) {
+      cells.push(el("td", { text: channelText(c.channel) }), el("td", { text: channelText(c.voiceChannel) }));
+    } else {
+      const channel = picker("channel", c.channel, g.options.textChannels, "— session channel —", channelLabel);
+      const voice = picker("voiceChannel", c.voiceChannel, g.options.voiceChannels, "— ask when planning —", channelLabel);
+      const save = el("button", { type: "button", class: "secondary small", text: "Save" });
+      save.addEventListener("click", async () => {
+        save.disabled = true;
+        try {
+          const data = await call("PUT", `guilds/${g.id}/campaigns/${encodeURIComponent(c.id)}`, { channel: channel.value || null, voiceChannel: voice.value || null });
+          render(data);
+          savedToast(data, `Channels of ${c.name}`);
+        } catch (err) {
+          toast(err.message, true);
+        } finally {
+          save.disabled = false;
+        }
+      });
+      cells.push(el("td", {}, [channel]), el("td", {}, [voice]));
+      cells.push(el("td", { text: String(c.players) }), el("td", { text: c.nextSession ? when(c.nextSession) : "–" }), el("td", {}, [save]));
+      return el("tr", {}, cells);
+    }
+    cells.push(el("td", { text: String(c.players) }), el("td", { text: c.nextSession ? when(c.nextSession) : "–" }), el("td", {}));
+    return el("tr", {}, cells);
+  }
+
   function renderGuilds() {
     const list = state.guilds;
     $("#no-guilds").hidden = list.length > 0;
     $("#guilds").replaceChildren(...list.map((g) => {
-      const channelRows = Object.entries(MESSAGE_TYPES).map(([type, label]) => el("tr", {}, [el("th", { text: label, scope: "row" }), el("td", { text: channelText(g.channels[type]) })]));
-      channelRows.push(el("tr", {}, [el("th", { text: "Mention role", scope: "row" }), el("td", { text: roleText(g.mentionRole) })]));
-      channelRows.push(el("tr", {}, [el("th", { text: "GM role", scope: "row" }), el("td", { text: roleText(g.gmRole) })]));
+      let settings;
+      if (g.options) {
+        settings = guildForm(g);
+      } else {
+        const rows = Object.entries(MESSAGE_TYPES).map(([type, label]) => el("tr", {}, [el("th", { text: label, scope: "row" }), el("td", { text: channelText(g.channels[type]) })]));
+        rows.push(el("tr", {}, [el("th", { text: "Mention role", scope: "row" }), el("td", { text: roleText(g.mentionRole) })]));
+        rows.push(el("tr", {}, [el("th", { text: "GM role", scope: "row" }), el("td", { text: roleText(g.gmRole) })]));
+        settings = el("div", { class: "table-wrap" }, [el("table", { class: "config" }, [el("tbody", {}, rows)])]);
+      }
       const campaigns = g.campaigns.length
-        ? el("div", { class: "table-wrap" }, [el("table", {}, [
-            el("thead", {}, [el("tr", {}, ["Campaign", "World", "Channel", "Voice channel", "Players", "Next session"].map((h) => el("th", { text: h })))]),
-            el("tbody", {}, g.campaigns.map((c) => el("tr", {}, [
-              el("td", { text: c.name }),
-              el("td", { text: c.worldTitle ? `${c.worldTitle} (${c.world})` : c.world }),
-              el("td", { text: channelText(c.channel) }),
-              el("td", { text: channelText(c.voiceChannel) }),
-              el("td", { text: String(c.players) }),
-              el("td", { text: c.nextSession ? when(c.nextSession) : "–" }),
-            ]))),
+        ? el("div", { class: "table-wrap" }, [el("table", { class: "campaigns" }, [
+            el("thead", {}, [el("tr", {}, ["Campaign", "World", "Channel", "Voice channel", "Players", "Next session", ""].map((h) => el("th", { text: h })))]),
+            el("tbody", {}, g.campaigns.map((c) => campaignRow(g, c))),
           ])])
         : el("p", { class: "empty", text: "No campaigns." });
-      const title = `${g.name || `Server ${g.id}`}${g.joined ? "" : " (the bot is no longer in it)"}`;
+      const title = `${g.name || `Server ${g.id}`}${g.joined ? "" : " (the bot is no longer in it: nothing can be changed)"}`;
       return el("div", { class: "guild" }, [
         el("h3", { text: title }),
         g.healthIssue ? el("p", { class: "error", text: "The bot is missing permissions here; see its last message in the server." }) : "",
-        el("div", { class: "table-wrap" }, [el("table", { class: "config" }, [el("tbody", {}, channelRows)])]),
+        settings,
+        el("h4", { text: "Campaigns" }),
         campaigns,
       ]);
     }));

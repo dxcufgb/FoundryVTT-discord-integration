@@ -138,7 +138,7 @@ An optional, password-protected web page, like the admin pages of the Foundry wo
 
 - **Overview:** Foundry up/down, the active world, Foundry's version, the Discord connection and the configuration from `.env` (never the token).
 - **Monitoring:** the announcement switches of `/monitor` and the update tracking of `/updates settings`, and the restart window.
-- **Servers and campaigns:** each server's channel routing, mention and GM roles, its campaigns with their world, channels, players and next session.
+- **Servers and campaigns:** each server's channel routing, mention role and GM role, and each campaign's channel and voice channel, chosen from dropdowns (the same settings as `/channel`, `/gm-role` and `/campaign edit`; saving warns when the bot lacks a permission in the chosen channel), plus each campaign's world, players and next session.
 - **Session summaries:** on/off, the age limit, the summary folder, the recent summaries and where they were posted, and *Post now*.
 - **Admin password.**
 

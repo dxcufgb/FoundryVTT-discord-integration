@@ -306,3 +306,9 @@ table.config th { width: 34%; text-transform: none; letter-spacing: 0; font-size
 .guild .table-wrap { margin-bottom: 8px; }
 #summary-post-form { max-width: 460px; margin-bottom: 8px; }
 #summary-folder { margin: 0 0 12px; overflow-wrap: anywhere; }
+h4 { font-size: 0.95rem; font-weight: 600; margin: 16px 0 8px; }
+.guild-form { margin-bottom: 8px; }
+.guild { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.guild:last-child { border-bottom: none; }
+table.campaigns select { margin-top: 0; min-width: 160px; padding: 6px 8px; }
+table.campaigns td { vertical-align: middle; }
