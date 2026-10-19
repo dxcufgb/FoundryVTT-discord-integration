@@ -161,6 +161,30 @@ test("five failed logins lock the address out", async () => {
   }
 });
 
+test("parallel wrong logins cannot get past the lockout", async () => {
+  const t = await startPage();
+  try {
+    const results = await Promise.all(Array.from({ length: 12 }, () => t.call("POST", "login", { password: "wrong password" })));
+    const statuses = results.map((r) => r.status);
+    assert.equal(statuses.filter((s) => s === 401).length, 5);
+    assert.equal(statuses.filter((s) => s === 429).length, 7);
+    assert.equal((await t.login()).status, 429, "still locked");
+  } finally {
+    await t.close();
+  }
+});
+
+test("a correct login clears the address's earlier failures", async () => {
+  const t = await startPage();
+  try {
+    for (let i = 0; i < 4; i++) await t.call("POST", "login", { password: "wrong password" });
+    assert.equal((await t.login()).status, 200);
+    for (let i = 0; i < 4; i++) assert.equal((await t.call("POST", "login", { password: "wrong password" })).status, 401);
+  } finally {
+    await t.close();
+  }
+});
+
 test("monitoring switches are validated and saved to the state", async () => {
   const t = await startPage();
   try {

@@ -287,16 +287,20 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
     if ((f && f.until > now()) || globalFailures.length >= GLOBAL_FAILURES) {
       return sendJson(res, 429, { error: "too many failed logins; try again in a few minutes" });
     }
+    // Count the attempt before the slow password check, so parallel requests cannot get past the limits.
+    const count = (f && !f.until ? f.count : 0) + 1;
+    failures.set(ip, { count, until: count >= LOGIN_FAILURES ? now() + LOCKOUT_MS : 0 });
+    if (failures.size > 1000) failures.delete(failures.keys().next().value);
+    const stamp = now();
+    globalFailures.push(stamp);
     if (await verifyPassword(body.password, settings.passwordHash)) {
       failures.delete(ip);
+      const i = globalFailures.indexOf(stamp);
+      if (i >= 0) globalFailures.splice(i, 1);
       const s = newSession();
       log.info("admin page: login");
       return sendJson(res, 200, await state(s.csrf), { "Set-Cookie": cookie(req, s.id, SESSION_MS / 1000) });
     }
-    const count = (f && !f.until ? f.count : 0) + 1;
-    failures.set(ip, { count, until: count >= LOGIN_FAILURES ? now() + LOCKOUT_MS : 0 });
-    if (failures.size > 1000) failures.delete(failures.keys().next().value);
-    globalFailures.push(now());
     log.warn(`admin page: failed login from ${ip}`);
     return sendJson(res, 401, { error: "wrong password" });
   }

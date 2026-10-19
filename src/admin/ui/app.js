@@ -352,11 +352,14 @@
     }
   }
 
+  // Only shows the login page once the server has ended the session (a 401 means it already had).
   async function logout() {
     try {
       await call("POST", "logout", {});
-    } catch {
-      // logged out either way
+    } catch (err) {
+      if (!$("#login-view").hidden) return;
+      toast(`Logging out failed: ${err.message} Try again.`, true);
+      return;
     }
     csrf = "";
     showLogin();

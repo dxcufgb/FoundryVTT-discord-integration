@@ -130,14 +130,14 @@ When a world goes back to the setup screen, the bot posts that world's **session
 - **Needs the module.** The bot reads what the module exported into Foundry's Data folder (`Data/session-summaries/`, or `SESSION_SUMMARY_DIR`); it never writes there. Without the module, without `FOUNDRY_DATA_PATH`, or with broken files, nothing is posted and **the bot works exactly as before**.
 - **What is posted:** every summary of the stopped world that ended within the last 24 hours, is not a mid-session "Export now", and was not posted to that channel before; oldest first. Each summary is posted once per channel; a failed post is tried again the next time the world stops.
 - **Where:** only to a campaign's own channel (`/campaign create … channel:` or `/campaign edit`). A world without a campaign, or a campaign without a channel, gets nothing: there is no fallback to the server's default or session channel.
-- It also works with world announcements turned off in `/monitor`. On the [administration page](#administration-page) it can be turned off, the 24 hours changed, recent summaries checked and a world's summaries posted by hand.
+- It also works with world announcements turned off in `/monitor`, and when the GM goes back to setup and straight into another world between two checks. On the [administration page](#administration-page) it can be turned off, the 24 hours changed, recent summaries checked and a world's summaries posted by hand.
 
 ## Administration page
 
 An optional, password-protected web page, like the admin pages of the Foundry world backup and the release proxy, shows the bot's state and changes its settings without Discord:
 
 - **Overview:** Foundry up/down, the active world, Foundry's version, the Discord connection and the configuration from `.env` (never the token).
-- **Monitoring:** the announcement switches of `/monitor` and the update tracking of `/updates track`, and the restart window.
+- **Monitoring:** the announcement switches of `/monitor` and the update tracking of `/updates settings`, and the restart window.
 - **Servers and campaigns:** each server's channel routing, mention and GM roles, its campaigns with their world, channels, players and next session.
 - **Session summaries:** on/off, the age limit, the summary folder, the recent summaries and where they were posted, and *Post now*.
 - **Admin password.**

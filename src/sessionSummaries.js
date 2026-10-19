@@ -159,14 +159,24 @@ function targetsFor(state, worldId) {
  * of messages sent. Never throws.
  * @param {{ state, config, client, log?, now?: () => Date, readFile?: (file:string) => Promise<string> }} ctx
  */
-export async function postSessionSummaries(ctx, worldId) {
+const inFlight = new Map(); // worldId -> the running post
+
+export function postSessionSummaries(ctx, worldId) {
+  // One run per world at a time (a world stop and "Post now" could otherwise post the same summary twice).
+  if (inFlight.has(worldId)) return inFlight.get(worldId);
   const { state, config, client, log = console, now = () => new Date(), readFile = defaultReadFile } = ctx;
-  try {
-    return await postSummaries({ state, config, client, log, now, readFile }, worldId);
-  } catch (err) {
-    log.warn(`session summaries for world ${worldId}: ${err?.message ?? err}`);
-    return 0;
-  }
+  const run = (async () => {
+    try {
+      return await postSummaries({ state, config, client, log, now, readFile }, worldId);
+    } catch (err) {
+      log.warn(`session summaries for world ${worldId}: ${err?.message ?? err}`);
+      return 0;
+    } finally {
+      inFlight.delete(worldId);
+    }
+  })();
+  inFlight.set(worldId, run);
+  return run;
 }
 
 async function postSummaries({ state, config, client, log, now, readFile }, worldId) {

@@ -13,8 +13,9 @@
 //   { type: "foundryUpdated", version, previousVersion }
 //   { type: "packageUpdated" | "packageInstalled" | "packageRemoved", pkg }
 //
-// onWorldStopped(worldId) runs whenever a world goes back to setup, also when
-// world announcements are turned off (it posts the session summaries).
+// onWorldStopped(worldId) runs whenever a world goes back to setup (also when the
+// next poll already sees another world), and also when world announcements are
+// turned off (it posts the session summaries).
 
 import { diffPackages, notifiedKey, packageKey, removedKey } from "./updates.js";
 import { isInsideWindow, windowAt } from "../restartWindow.js";
@@ -157,7 +158,8 @@ export class FoundryMonitor {
       if (world) await this.send({ type: "worldStarted", world, previousWorld, status });
       else await this.send({ type: "worldStopped", world: previousWorld, status });
     }
-    if (!world) await this.worldStopped(previousWorld);
+    // A switch (A → B) between two polls went through the setup screen too: A stopped.
+    if (previousWorld) await this.worldStopped(previousWorld);
   }
 
   /** Runs onWorldStopped; whatever it does, monitoring goes on. */

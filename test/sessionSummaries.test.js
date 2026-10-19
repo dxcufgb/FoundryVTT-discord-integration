@@ -326,9 +326,10 @@ test("world stopped runs the summary step, also with world announcements off", a
     assert.deepEqual(t.events.map((e) => e.type), worldAnnouncements ? ["worldStopped"] : []);
     t.set({ world: "next" });
     await t.monitor.tick();
+    assert.deepEqual(t.stopped, ["my-world"], "starting a world is not a stop");
     t.set({ world: "third" });
     await t.monitor.tick();
-    assert.deepEqual(t.stopped, ["my-world"], "only world → setup, not starting or switching worlds");
+    assert.deepEqual(t.stopped, ["my-world", "next"], "a switch between two polls went through setup: next stopped");
   }
 });
 
@@ -374,4 +375,13 @@ test("the full path: Foundry back to setup posts the summary, world announcement
   result.value = { ok: true, status: upStatus({ active: false, world: null }) };
   await monitor.tick();
   assert.deepEqual(t.client.sent.map((s) => s.id), ["c1"]);
+});
+
+test("a world stop and Post now at the same time post a summary once", async () => {
+  const { root } = writeFolder([summary()]);
+  const t = setup({ root });
+  const [a, b] = await Promise.all([postSessionSummaries(t.ctx, "my-world"), postSessionSummaries(t.ctx, "my-world")]);
+  assert.equal(a + b, 2, "the second call shares the first run");
+  assert.equal(t.client.sent.length, 1);
+  assert.equal(await postSessionSummaries(t.ctx, "my-world"), 0, "a later run starts fresh and finds it posted");
 });
