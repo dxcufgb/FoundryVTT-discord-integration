@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-19
+
 ### Added
 
 - **Session summaries.** When a Foundry world goes back to setup, the bot posts that world's session summary, written by the Foundry module [dxcufgbs-session-summary](https://github.com/dxcufgb/FoundryVTT-session-summary), to the channel of every campaign bound to the world. Only sessions that ended within the last 24 hours, never a mid-session export, each one once per channel (a failed post is retried the next time the world stops), oldest first. A campaign without a channel gets nothing. Works with world announcements turned off. The new optional `SESSION_SUMMARY_DIR` points at the module's folder if it is not `session-summaries` in Foundry's Data folder; `npm run check-config` reports whether it exists. Without the module the bot works exactly as before.
@@ -130,7 +132,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.3.2...v1.4.0
