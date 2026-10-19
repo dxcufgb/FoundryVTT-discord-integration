@@ -42,7 +42,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Entry point and scripts parse
-        run: node --check src/index.js && node --check scripts/register-commands.js && node --check scripts/check-config.js && node --check scripts/self-update.js
+        run: node --check src/index.js && node --check scripts/register-commands.js && node --check scripts/check-config.js && node --check scripts/self-update.js && node --check scripts/admin-password.js && node --check src/admin/ui/app.js
 
   release-build:
     name: Release build (scripts/build-release.sh)

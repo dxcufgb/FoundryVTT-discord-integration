@@ -4,6 +4,7 @@
 // and validates it. Nothing here touches Discord or Foundry.
 
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -144,6 +145,11 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
   const dataPath = pick(env, "FOUNDRY_DATA_PATH");
   const appPath = pick(env, "FOUNDRY_APP_PATH");
   const botDataDir = path.resolve(baseDir, pick(env, "BOT_DATA_DIR") ?? DEFAULTS.BOT_DATA_DIR);
+  // Absolute, or relative to Foundry's Data folder (as the module's "Export folder" setting names it).
+  const sessionSummaryDir = pick(env, "SESSION_SUMMARY_DIR");
+
+  let admin = null;
+  try { admin = adminConfig(env, baseDir); } catch (e) { errors.push(e.message); }
 
   if (errors.length) {
     const err = new Error(`Configuration problems:\n  - ${errors.join("\n  - ")}`);
@@ -155,11 +161,43 @@ export function buildConfig(env, { requireDiscord = true, baseDir = PROJECT_ROOT
     discord: Object.freeze({ token, clientId, guildId: pick(env, "DISCORD_GUILD_ID") }),
     foundry: Object.freeze({ url: foundryUrl, websiteUrl, dataPath: dataPath ? path.resolve(dataPath) : undefined, appPath: appPath ? path.resolve(appPath) : undefined }),
     botDataDir,
+    sessionSummaryDir: sessionSummaryDir ? (path.isAbsolute(sessionSummaryDir) ? path.resolve(sessionSummaryDir) : sessionSummaryDir) : undefined,
+    admin,
     pollIntervalSeconds,
     downAfterFailures,
     timezone,
     logLevel,
     updateNotify,
+  });
+}
+
+/**
+ * The administration page (off unless ADMIN_PORT is set; it also needs a password, see
+ * scripts/admin-password.js). Returns null when it is off.
+ */
+function adminConfig(env, baseDir) {
+  const raw = pick(env, "ADMIN_PORT");
+  if (raw === undefined || /^(off|no|false)$/i.test(raw)) return null;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("ADMIN_PORT must be a port number (1-65535)");
+  const hosts = (pick(env, "ADMIN_HOSTS") ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+  const tp = (pick(env, "ADMIN_TRUST_PROXY") ?? "").toLowerCase();
+  let trustProxy = [];
+  if (/^(1|true|yes|loopback)$/.test(tp)) trustProxy = ["loopback"];
+  else if (tp && !/^(0|false|no|off)$/.test(tp)) {
+    trustProxy = tp.split(",").map((a) => a.trim()).filter(Boolean);
+    const bad = trustProxy.find((a) => !net.isIP(a));
+    if (bad) throw new Error(`ADMIN_TRUST_PROXY: "${bad}" is not an IP address (use 1, or the proxies' addresses)`);
+  }
+  const file = (key) => (pick(env, key) ? path.resolve(baseDir, pick(env, key)) : undefined);
+  return Object.freeze({
+    port,
+    host: pick(env, "ADMIN_HOST") ?? "0.0.0.0",
+    hosts,
+    tls: !/^(off|0|false|no)$/i.test(pick(env, "ADMIN_TLS") ?? ""),
+    tlsCert: file("ADMIN_TLS_CERT"),
+    tlsKey: file("ADMIN_TLS_KEY"),
+    trustProxy,
   });
 }
 

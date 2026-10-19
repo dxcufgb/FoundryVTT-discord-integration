@@ -29,6 +29,9 @@ export function defaultState() {
       lastSeenUpAt: null,
       restartWindowAlerted: false,
     },
+    // Posting the session summaries of the dxcufgbs-session-summary module when a world stops
+    // (src/sessionSummaries.js); changed on the administration page.
+    sessionSummaries: { enabled: true, maxAgeHours: 24 },
     packages: {},
     packagesSeeded: false,
     lastWindowAnnounced: null,

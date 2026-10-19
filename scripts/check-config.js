@@ -4,6 +4,9 @@ import { loadConfig } from "../src/config.js";
 import { createStatusFetcher } from "../src/foundry/status.js";
 import { readFoundryVersion, resolveDataFolder, scanPackages } from "../src/foundry/packages.js";
 import { moduleUsage, scanWorldsWithModules } from "../src/foundry/worlds.js";
+import { summaryFolder } from "../src/sessionSummaries.js";
+import { adminFile, loadAdminSettings } from "../src/admin/settings.js";
+import fs from "node:fs";
 
 let config;
 try {
@@ -39,3 +42,20 @@ if (config.foundry.dataPath) {
   for (const w of usage.unreadable) console.log(`  world ${w.id}: ${w.reason}`);
 }
 if (config.foundry.appPath) console.log(`Installed Foundry version from app folder: ${readFoundryVersion(config.foundry.appPath) ?? "not found"}`);
+
+// Session summaries (the dxcufgbs-session-summary module): a missing folder is fine.
+const summaries = summaryFolder(config);
+if (!summaries) console.log("Session summaries:  off (FOUNDRY_DATA_PATH is not set and SESSION_SUMMARY_DIR is not an absolute path)");
+else {
+  let exists = false;
+  try { exists = fs.statSync(summaries).isDirectory(); } catch { /* missing */ }
+  console.log(`Session summaries:  ${summaries} ${exists ? "exists" : "does not exist (fine: the dxcufgbs-session-summary module has not exported a session there yet)"}`);
+}
+
+// The administration page.
+if (!config.admin) console.log("Admin page:         off (ADMIN_PORT is not set)");
+else {
+  let password = "not set (npm run admin-password)";
+  try { if (loadAdminSettings(adminFile(config.botDataDir)).passwordHash) password = "set"; } catch (err) { password = `unreadable: ${err.message}`; }
+  console.log(`Admin page:         port ${config.admin.port} on ${config.admin.host}, ${config.admin.tls ? "HTTPS" : "plain HTTP"}, password ${password}`);
+}

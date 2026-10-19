@@ -8,6 +8,7 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - `npm run check-config` — validates `.env` and reports worlds and unused modules (needs a real Foundry data folder).
 - `npm run register-commands` — pushes slash command definitions to Discord (needs a token; do not run casually).
 - `npm start` — runs the bot (needs a token).
+- `npm run admin-password` — sets the administration page's password (`data/admin.json`).
 
 ## Layout
 
@@ -19,6 +20,8 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - `src/state.js` — persistent JSON state (atomic writes); `MESSAGE_TYPES` lives here.
 - `src/messages.js`, `src/notifier.js` — embeds and posting.
 - `src/campaigns.js`, `src/sessions.js`, `src/restartWindow.js` — domain logic.
+- `src/sessionSummaries.js` — posts the session summaries of the Foundry module dxcufgbs-session-summary (read-only, `Data/session-summaries` or `SESSION_SUMMARY_DIR`) to the channels of the campaigns bound to a world when it goes back to setup (`FoundryMonitor`'s `onWorldStopped`, which runs also with world announcements off). Never throws; posted (session, channel) pairs are recorded in `state.notified` after a successful send. Settings in `state.sessionSummaries`.
+- `src/admin/` — the optional administration page (`ADMIN_PORT` + a password in `data/admin.json`, set with `npm run admin-password`): `server.js` (HTTPS listener, self-signed certificate kept in `data/`), `page.js` (the `/_admin` handler and JSON API; session cookie, CSRF token, host/origin checks, login lockout, strict CSP), `settings.js` (scrypt password), `selfsigned.js`, `ui/` (one page, plain DOM, `textContent` only). Modelled on the admin pages of FoundryVTT-world-backup-to-git and FoundryVTT-Private-Github-proxy. Never put the Discord token in a response or a log line.
 - `src/updateNotice.js` — after a bot update, DM the changelog to server admins once. `UPDATE_NOTIFY` = `admins` (default, needs the Server Members intent) / `owner` / `off`; `connectDiscord` in `src/discord/client.js` falls back to `owner` when Discord refuses the intent.
 - `src/selfUpdate.js` + `scripts/self-update.js` — opt-in auto-update (release check, download, SHA-256); `deploy/linux/auto-update.sh` (root, `foundryvtt-discord-bot-update.timer`) and `deploy/windows/auto-update.ps1` (SYSTEM, daily task) install it and roll back on failure.
 - `deploy/` — Linux (systemd) and Windows (Task Scheduler, Inno Setup) installers. `deploy/linux/archive-install.sh` becomes `install.sh` at the top of the Linux archive and runs `deploy/linux/install.sh`.

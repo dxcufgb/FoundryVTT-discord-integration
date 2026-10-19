@@ -18,6 +18,8 @@ import { watchGuildHealth } from "./discord/health.js";
 import { syncCommands } from "./discord/registerCommands.js";
 import { announceUpdate } from "./updateNotice.js";
 import { installedVersion } from "./selfUpdate.js";
+import { postSessionSummaries, summaryFolder } from "./sessionSummaries.js";
+import { startAdmin } from "./admin/server.js";
 
 /** Load configuration and state, connect to Discord, announce updates and start Foundry polling. */
 async function main() {
@@ -69,6 +71,8 @@ async function main() {
         await ctx.sessions.onMonitorEvent(event);
       }
     },
+    // Session summaries are posted whenever a world goes back to setup, also with world announcements off.
+    onWorldStopped: (worldId) => postSessionSummaries(ctx, worldId),
     options: { downAfterFailures: config.downAfterFailures },
     log,
   });
@@ -129,6 +133,13 @@ async function main() {
     repoUrl: "https://github.com/dxcufgb/FoundryVTT-discord-integration",
     log,
   });
+  // The administration page (only with ADMIN_PORT and a password). A problem there never stops the bot.
+  try {
+    await startAdmin(ctx, { version });
+  } catch (err) {
+    log.error(`administration page not started: ${err?.message ?? err}`);
+  }
+  log.debug(`Session summaries are read from ${summaryFolder(config) ?? "(no folder: FOUNDRY_DATA_PATH is not set)"}.`);
   if (!config.foundry.dataPath) log.warn("FOUNDRY_DATA_PATH is not set: system/module update tracking and world titles are off.");
   await poll();
   timer = setInterval(poll, config.pollIntervalSeconds * 1000);
