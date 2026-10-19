@@ -264,7 +264,7 @@ test("HTTPS: a self-signed certificate is made once in the data folder, plain HT
     assert.equal(plain.status, 301);
     assert.equal(plain.headers.get("location"), `https://127.0.0.1:${port}/_admin/`);
     const cert = await new Promise((resolve, reject) => {
-      https.get({ host: "127.0.0.1", port, path: "/_admin/certificate.crt", rejectUnauthorized: false }, (res) => {
+      https.get({ host: "127.0.0.1", port, path: "/_admin/certificate.crt", ca: first.cert }, (res) => {
         let body = "";
         res.on("data", (c) => (body += c));
         res.on("end", () => resolve({ status: res.statusCode, body }));

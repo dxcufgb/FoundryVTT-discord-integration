@@ -147,7 +147,11 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
     res.writeHead(status, { "Cache-Control": "no-store", ...SECURITY_HEADERS, ...headers });
     res.end(body);
   }
-  const sendJson = (res, status, obj, headers = {}) => send(res, status, JSON.stringify(obj), { "Content-Type": "application/json; charset=utf-8", ...headers });
+  // Always JSON: error messages in it are never read as HTML.
+  function sendJson(res, status, obj, headers = {}) {
+    res.writeHead(status, { "Cache-Control": "no-store", ...SECURITY_HEADERS, ...headers, "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify(obj));
+  }
 
   function session(req) {
     const id = parseCookies(req.headers.cookie)[COOKIE];

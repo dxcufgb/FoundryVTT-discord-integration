@@ -33,8 +33,9 @@ async function readStdinLine() {
 let config;
 try {
   config = loadConfig({ requireDiscord: false });
-} catch (err) {
-  console.error(err.message);
+} catch {
+  // The problems can quote values from .env; check-config lists them.
+  console.error("The configuration (.env) has problems; run npm run check-config to see them.");
   process.exit(2);
 }
 
