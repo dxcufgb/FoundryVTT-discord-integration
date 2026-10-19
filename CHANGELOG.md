@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-19
+
 ### Added
 
 - **Administration page: edit channels and roles.** The *Servers and campaigns* page now changes each server's channel for every message type, the role pinged on unexpected downtime and the game master role, and each campaign's channel and voice channel, picked from the server's channels and roles. These are the same settings as `/channel`, `/gm-role` and `/campaign edit`. Saving warns, like those commands, when the bot lacks a permission in the chosen channel. A channel that was deleted in Discord stays selected until it is changed.
@@ -136,7 +138,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.0...v1.4.1
