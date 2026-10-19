@@ -5,6 +5,7 @@ import net from "node:net";
 import path from "node:path";
 import http from "node:http";
 import https from "node:https";
+import { ChannelType, PermissionFlagsBits } from "discord.js";
 import { createAdmin } from "../src/admin/page.js";
 import { adminTls, createAdminServer, startAdmin } from "../src/admin/server.js";
 import { adminFile, hashPassword, loadAdminSettings, passwordProblem, saveAdminSettings, verifyPassword } from "../src/admin/settings.js";
@@ -15,13 +16,26 @@ import { quietLog, tmpDir, tmpState } from "./helpers.js";
 const PASSWORD = "correct horse battery";
 const TOKEN = "discord-token-that-must-never-leak";
 
+// A channel the bot can use fully, or (deny) one where it lacks those permissions.
+const fakeChannel = (id, name, type, { deny = [], position = 0 } = {}) => ({
+  id, name, type, rawPosition: position,
+  isThread: () => false,
+  permissionsFor: () => ({ has: (flag) => !deny.includes(flag) }),
+});
+
 function fakeClient() {
   const sent = [];
   const guild = {
     id: "g1",
     name: "Table Top",
-    channels: { cache: new Map([["c1", { name: "crypt-crawl" }]]) },
-    roles: { cache: new Map([["r1", { name: "Players" }]]) },
+    members: { me: { permissions: { has: () => true }, roles: { botRole: { name: "Foundry Bot" } } } },
+    channels: { cache: new Map([
+      ["c1", fakeChannel("c1", "crypt-crawl", ChannelType.GuildText, { position: 1 })],
+      ["c2", fakeChannel("c2", "muted", ChannelType.GuildText, { position: 2, deny: [PermissionFlagsBits.SendMessages] })],
+      ["v1", fakeChannel("v1", "Tavern", ChannelType.GuildVoice, { position: 3 })],
+      ["v2", fakeChannel("v2", "Locked", ChannelType.GuildVoice, { position: 4, deny: [PermissionFlagsBits.Connect] })],
+    ]) },
+    roles: { cache: new Map([["g1", { id: "g1", name: "@everyone", position: 0 }], ["r1", { id: "r1", name: "Players", position: 2 }], ["r2", { id: "r2", name: "GMs", position: 3 }]]) },
   };
   return {
     sent,
@@ -198,6 +212,80 @@ test("monitoring switches are validated and saved to the state", async () => {
     assert.equal(t.state.data.monitor.enabled.status, true);
     assert.equal(t.state.data.monitor.updates.trackModules, false);
     assert.equal(r.data.monitor.enabled.world, false);
+  } finally {
+    await t.close();
+  }
+});
+
+test("server channels and roles: choices offered, validated and saved", async () => {
+  const t = await startPage();
+  try {
+    await t.login();
+    const g = (await t.call("GET", "state")).data.guilds[0];
+    assert.deepEqual(g.options.textChannels.map((c) => c.id), ["c1", "c2"]);
+    assert.deepEqual(g.options.voiceChannels.map((c) => c.id), ["v1", "v2"]);
+    assert.deepEqual(g.options.roles.map((r) => r.id), ["r2", "r1"], "no @everyone, highest first");
+
+    assert.equal((await t.call("PUT", "guilds/g1", { channels: { status: "v1" } })).status, 404, "not a snowflake-like id");
+    const put = (body) => t.call("PUT", "guilds/123456", body);
+    t.client.guilds.cache.set("123456", t.client.guilds.cache.get("g1"));
+    t.client.guilds.cache.get("123456").id = "123456";
+    assert.equal((await put({ channels: { status: "v1" } })).status, 400, "a voice channel cannot take messages");
+    assert.equal((await put({ channels: { nope: "c1" } })).status, 400);
+    assert.equal((await put({ channels: { status: "c9" } })).status, 400);
+    assert.equal((await put({ mentionRole: "123456" })).status, 400, "@everyone is not offered");
+    assert.equal((await put({ gmRole: "r9" })).status, 400);
+    assert.equal((await t.call("PUT", "guilds/999999", {})).status, 404, "the bot is not in that server");
+
+    const ok = await put({ channels: { default: "c1", status: "c2", world: null }, mentionRole: "r1", gmRole: "r2" });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(t.state.guild("123456").channels, { default: "c1", status: "c2" });
+    assert.equal(t.state.guild("123456").mentionRole, "r1");
+    assert.equal(t.state.guild("123456").gmRole, "r2");
+    assert.equal(ok.data.warnings.length, 1, "the bot cannot post in #muted");
+    assert.match(ok.data.warnings[0], /cannot post in #muted yet: the bot lacks Send Messages in #muted/);
+    assert.doesNotMatch(ok.data.warnings[0], /\*\*|<#/, "plain text, no Discord markdown");
+
+    const cleared = await put({ channels: { status: null }, mentionRole: null, gmRole: "" });
+    assert.deepEqual(t.state.guild("123456").channels, { default: "c1" });
+    assert.equal(t.state.guild("123456").mentionRole, null);
+    assert.equal(t.state.guild("123456").gmRole, null);
+    assert.deepEqual(cleared.data.warnings, []);
+
+    // A stored channel that was deleted in Discord can be kept (saving the rest of the form must not fail).
+    t.state.setChannel("123456", "updates", "gone1");
+    assert.equal((await put({ channels: { updates: "gone1", default: "c1" } })).status, 200);
+    assert.equal(t.state.guild("123456").channels.updates, "gone1");
+    assert.equal((await t.call("PUT", "guilds/123456", { channels: { default: "c2" } }, { headers: { "X-CSRF-Token": "nope" } })).status, 403);
+  } finally {
+    await t.close();
+  }
+});
+
+test("campaign channel and voice channel are validated and saved", async () => {
+  const t = await startPage();
+  try {
+    await t.login();
+    const guild = t.client.guilds.cache.get("g1");
+    t.client.guilds.cache.delete("g1");
+    guild.id = "555555";
+    t.client.guilds.cache.set("555555", guild);
+    const campaign = t.state.saveCampaign("555555", createCampaign({ name: "Lost Mines", world: "lost-mines", dm: "dm1", channel: "c1" }));
+    const put = (body) => t.call("PUT", `guilds/555555/campaigns/${campaign.id}`, body);
+    assert.equal((await t.call("PUT", "guilds/555555/campaigns/nope", {})).status, 404);
+    assert.equal((await put({ voiceChannel: "c1" })).status, 400, "a text channel is not a voice channel");
+    assert.equal((await put({ channel: "v1" })).status, 400);
+
+    const ok = await put({ channel: "c2", voiceChannel: "v2" });
+    assert.equal(ok.status, 200);
+    assert.deepEqual([t.state.campaign("555555", campaign.id).channel, t.state.campaign("555555", campaign.id).voiceChannel], ["c2", "v2"]);
+    assert.equal(ok.data.warnings.length, 2);
+    assert.match(ok.data.warnings[1], /Session events cannot be held in #Locked yet: the bot lacks Connect/);
+
+    await put({ channel: null, voiceChannel: null });
+    assert.deepEqual([t.state.campaign("555555", campaign.id).channel, t.state.campaign("555555", campaign.id).voiceChannel], [null, null]);
+    const shown = (await t.call("GET", "state")).data.guilds.find((g) => g.id === "555555");
+    assert.equal(shown.campaigns[0].channel, null);
   } finally {
     await t.close();
   }

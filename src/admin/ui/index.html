@@ -102,8 +102,10 @@
       <section class="card page" data-page="servers" hidden>
         <p class="back"><a href="#/">← Overview</a></p>
         <h2>Servers and campaigns</h2>
-        <p class="hint">Where each Discord server gets which messages, and its campaigns. Change them with
-          <code>/channel</code>, <code>/gm-role</code> and <code>/campaign</code> in Discord.</p>
+        <p class="hint">Where each Discord server gets which messages, who is pinged and who may plan sessions, and the
+          channels of its campaigns: the same settings as <code>/channel</code>, <code>/gm-role</code> and
+          <code>/campaign edit</code> in Discord. A message type without its own channel goes to the default channel.
+          Saving warns when the bot lacks a permission in the chosen channel.</p>
         <div id="guilds"></div>
         <p id="no-guilds" class="empty" hidden>The bot is not in any Discord server yet.</p>
       </section>
