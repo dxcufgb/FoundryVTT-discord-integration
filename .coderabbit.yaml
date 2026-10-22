@@ -1,0 +1,33 @@
+# CodeRabbit settings for FoundryVTT-discord-integration.
+# Shared rules come from the central dxcufgb/coderabbit repository (inheritance: true), and CodeRabbit reads
+# CLAUDE.md as code guidelines. Only what is specific to this repository is here.
+# Check the merged result on a pull request with: @coderabbitai configuration
+inheritance: true
+
+reviews:
+  path_instructions:
+    - path: "src/discord/commands/**"
+      instructions: |
+        Slash commands are guild-only. Bot-configuration commands set adminOnly (or adminSubcommands) and
+        setDefaultMemberPermissions(Administrator); /session is checked against the campaign's DM inside the
+        command. Configuration replies are ephemeral. A new or changed command needs docs/COMMANDS.md updated.
+    - path: "src/foundry/**"
+      instructions: |
+        Foundry's data (LevelDB, manifests, worlds) is read-only. The single exception is writeWorldNextSession
+        setting the nextSession key of world.json; flag any other write or a widening of that one.
+    - path: "src/sessionSummaries.js"
+      instructions: |
+        Never throws into the monitor; a (session, channel) pair is recorded in state.notified only after a
+        successful send. Reads the session-summary module's files as untrusted input (shape, size).
+    - path: "src/admin/**"
+      instructions: |
+        Session cookie, CSRF token, Host/Origin checks, login lockout, strict CSP, UI text only through
+        textContent. The Discord token never appears in a response or a log line.
+    - path: "deploy/**"
+      instructions: |
+        Auto-update stays opt-in and runs as root/SYSTEM: install folder, parents, program files and the Node
+        binary must not be changeable by a non-root account. Upgrades keep .env and data/. A failed rollback
+        logs "ROLLBACK FAILED", keeps the backup and exits non-zero. Release file names are fixed (LEGACY_ASSETS).
+    - path: "{src,deploy}/**"
+      instructions: |
+        A user-visible change needs an entry under ## [Unreleased] in CHANGELOG.md.
