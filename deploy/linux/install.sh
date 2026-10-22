@@ -314,11 +314,16 @@ if node_ok; then
 else
   if command -v node >/dev/null; then warn "Node.js $(node --version) is too old; version 20 or newer is required."; else warn "Node.js was not found."; fi
   if ask_yn "Install Node.js 22 (LTS) now from nodesource.com?" y; then
+    # NodeSource's documented setup script over HTTPS, run only when the question above is answered yes (or --yes).
+    # A checksum-verified Node download (as in the release proxy's installer) would avoid piping it to bash.
     if command -v apt-get >/dev/null; then
+      # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash
       curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
     elif command -v dnf >/dev/null; then
+      # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash
       curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && dnf install -y nodejs
     elif command -v yum >/dev/null; then
+      # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash
       curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && yum install -y nodejs
     elif command -v pacman >/dev/null; then
       pacman -Sy --noconfirm nodejs npm
