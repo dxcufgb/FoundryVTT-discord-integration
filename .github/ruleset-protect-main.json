@@ -30,7 +30,10 @@
           { "context": "Test (Node 22, windows-latest)", "integration_id": 15368 },
           { "context": "Release build (scripts/build-release.sh)", "integration_id": 15368 },
           { "context": "Linux installer (systemd)", "integration_id": 15368 },
-          { "context": "Windows installer (Inno Setup)", "integration_id": 15368 }
+          { "context": "Windows installer (Inno Setup)", "integration_id": 15368 },
+          { "context": "Secrets (gitleaks)", "integration_id": 15368 },
+          { "context": "Code (Semgrep)", "integration_id": 15368 },
+          { "context": "Dependencies", "integration_id": 15368 }
         ]
       }
     }
