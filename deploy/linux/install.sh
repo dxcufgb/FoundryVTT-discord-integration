@@ -27,6 +27,7 @@ die()  { printf '%s  ✖ %s%s\n' "$RED" "$*" "$RESET" >&2; exit 1; }
 
 # --- arguments ------------------------------------------------------------------------------------------------
 INTERACTIVE=1
+YES=0 # --yes given: it is also the consent to install Node.js when it is missing
 START=1
 UNINSTALL=0
 PURGE=0
@@ -87,7 +88,7 @@ EOF
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --non-interactive|--yes|-y) INTERACTIVE=0; shift ;;
+    --non-interactive|--yes|-y) INTERACTIVE=0; YES=1; shift ;;
     --check-update) ACTION=check-update; shift ;;
     --update-now) ACTION=update-now; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
@@ -118,7 +119,9 @@ done
 # Interactive input must come from the terminal even when the script is piped from curl.
 TTY=""
 if [[ $INTERACTIVE -eq 1 ]]; then
-  if [[ -t 0 ]]; then TTY=/dev/stdin; elif [[ -r /dev/tty && -w /dev/tty ]]; then TTY=/dev/tty; else
+  # /dev/tty can look readable and writable without a controlling terminal (cron, setsid, CI) and only fail when
+  # opened; a failed read would then count as the default answer, so open it once to be sure.
+  if [[ -t 0 ]]; then TTY=/dev/stdin; elif [[ -r /dev/tty && -w /dev/tty ]] && { : > /dev/tty; } 2>/dev/null; then TTY=/dev/tty; else
     warn "No terminal available; switching to non-interactive mode."
     INTERACTIVE=0
   fi
@@ -313,12 +316,22 @@ if node_ok; then
   ok "Node.js $(node --version) found at $(command -v node)"
 else
   if command -v node >/dev/null; then warn "Node.js $(node --version) is too old; version 20 or newer is required."; else warn "Node.js was not found."; fi
+  # Without a terminal (and without --yes) nobody can answer the question below, and ask_yn would take its default.
+  # Installing Node.js runs NodeSource's script as root, so that needs a real yes: a typed one or --yes.
+  if [[ $INTERACTIVE -eq 0 && $YES -eq 0 ]]; then
+    die "No terminal to ask whether to install Node.js. Install Node.js 20 or newer (https://nodejs.org) and run this installer again, or run it with --yes to install Node.js 22 from nodesource.com."
+  fi
   if ask_yn "Install Node.js 22 (LTS) now from nodesource.com?" y; then
+    # NodeSource's documented setup script over HTTPS, run only after a typed yes or --yes (checked above).
+    # A checksum-verified Node download (as in the release proxy's installer) would avoid piping it to bash.
     if command -v apt-get >/dev/null; then
+      # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash
       curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
     elif command -v dnf >/dev/null; then
+      # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash
       curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && dnf install -y nodejs
     elif command -v yum >/dev/null; then
+      # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash
       curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && yum install -y nodejs
     elif command -v pacman >/dev/null; then
       pacman -Sy --noconfirm nodejs npm

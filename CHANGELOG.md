@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **Linux installer: Node.js is installed only on a real yes.** When Node.js is missing or too old and there is no terminal to ask (and no `--yes`), the installer now stops and says to install Node.js 20+ or run it again with `--yes`, instead of taking the default answer and running NodeSource's setup script as root. With a terminal it still asks; `--yes` still installs Node.js 22. It also no longer mistakes a `/dev/tty` that cannot be opened (no controlling terminal, as under cron or `setsid`) for a terminal, where a failed read counted as the default answer to every question.
+
 ## [1.6.0] - 2026-10-19
 
 ### Added

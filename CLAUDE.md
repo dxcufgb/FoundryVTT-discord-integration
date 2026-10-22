@@ -9,6 +9,7 @@ Discord bot (Node >= 20, ESM, discord.js 14) that watches a Foundry VTT v13 serv
 - `npm run register-commands` — pushes slash command definitions to Discord (needs a token; do not run casually).
 - `npm start` — runs the bot (needs a token).
 - `npm run admin-password` — sets the administration page's password (`data/admin.json`).
+- Security (`.github/workflows/security.yml`, required checks `Secrets (gitleaks)`, `Code (Semgrep)`, `Dependencies`; push to main, PRs, weekly): locally `gitleaks git --redact --log-opts="--full-history --diff-filter=tuxdb --diff-merges=first-parent HEAD" .`, `semgrep scan --metrics=off --error --severity WARNING --severity ERROR --config p/python --config p/javascript --config p/security-audit --config p/secrets --config p/github-actions --config r/bash`, and `npm audit --omit=dev --audit-level=low`. Semgrep false positives: `// nosemgrep: <rule-id>` (JavaScript) or `# nosemgrep: <rule-id>` (shell, YAML, PowerShell) on the matched line or the line immediately before it, with a reason; gitleaks: `.gitleaks.toml` with `[extend]` `useDefault = true`. CodeQL (default setup) and GitHub secret scanning also run.
 
 ## Layout
 
