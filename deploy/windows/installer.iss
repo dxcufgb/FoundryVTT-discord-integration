@@ -69,12 +69,13 @@ Name: "autoupdate"; Description: "Install new releases automatically (checks Git
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\.env,\data,\.git,\.github,\dist,*.tar.gz,*.zip"
 
 [Dirs]
-; The scheduled task runs as SYSTEM; start.bat is run by a logged-in user, so both need to write the state file.
+; No Permissions here: .env holds the Discord token and data\ the admin page's password hash, so protect-config.ps1
+; gives them (and the folder) explicit ACLs for Administrators, SYSTEM and the bot's account only (ProtectConfig).
 Name: "{commonappdata}\{#MyAppName}"
-Name: "{commonappdata}\{#MyAppName}\data"; Permissions: users-modify
+Name: "{commonappdata}\{#MyAppName}\data"
 
 [Icons]
-Name: "{group}\Edit configuration"; Filename: "notepad.exe"; Parameters: """{commonappdata}\{#MyAppName}\.env"""; Comment: "Open the bot's .env in Notepad (restart the task afterwards)"
+Name: "{group}\Edit configuration"; Filename: "{app}\deploy\windows\edit-config.bat"; Comment: "Open the bot's .env in Notepad as administrator (restart the task afterwards)"
 Name: "{group}\Check configuration"; Filename: "{app}\deploy\windows\check-config.bat"; Comment: "Validate .env and probe Foundry"
 Name: "{group}\Run bot in a window (log)"; Filename: "{app}\deploy\windows\start.bat"; Comment: "Run the bot in a console to watch its log"
 Name: "{group}\Open Task Scheduler"; Filename: "taskschd.msc"
@@ -397,6 +398,24 @@ begin
     SuppressibleMsgBox('Could not write ' + EnvFile, mbError, MB_OK, IDOK);
 end;
 
+{ Restrict the settings folder, .env and data\ to Administrators, SYSTEM and the bot's account (protect-config.ps1) before
+  .env is written, so the token is never readable by other accounts, not even briefly; upgrades fix older installations,
+  whose data\ folder let every user change it. install-task.ps1 runs it again for the task's account. }
+procedure ProtectConfig;
+var
+  ResultCode: Integer;
+begin
+  if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\deploy\windows\protect-config.ps1') + '"' +
+      ' -ConfigDir "' + ConfigDir + '" -EnvFile "' + EnvFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  begin
+    Log('protect-config.ps1 failed with exit code ' + IntToStr(ResultCode));
+    SuppressibleMsgBox('The permissions of ' + ConfigDir + ' could not be restricted (exit code ' + IntToStr(ResultCode) + '). ' +
+      'Registering the scheduled task tries again; see ' + ConfigDir + '\install-task.log.', mbError, MB_OK, IDOK);
+  end
+  else
+    Log('protect-config.ps1 succeeded');
+end;
+
 { Register the scheduled task through install-task.ps1; its output goes to install-task.log next to .env. }
 procedure RegisterTask;
 var
@@ -445,6 +464,7 @@ begin
   begin
     if NodeNeeded and WizardSilent then
       Log('Node.js is missing and cannot be installed silently; the scheduled task will fail until Node.js 20+ is installed.');
+    ProtectConfig;
     WriteEnvFile;
     RegisterTask;
     ConfigureAutoUpdate;

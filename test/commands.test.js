@@ -410,3 +410,20 @@ test("sessions: /session set also writes the date to the world, a failure is rep
   await runIn(c, { guildId: G, command: "session", subcommand: "clear", options: { campaign: "lost-mines" }, userId: "dm1" });
   assert.equal(writes.length, before, "clear does not touch the world");
 });
+
+test("campaign ids that are Object.prototype names find nothing and change nothing", async () => {
+  const c = ctx();
+  await run(c, { command: "campaign", subcommand: "create", options: { name: "Lost Mines", world: "lost-mines", dm: "dm1" }, admin: true });
+  const before = JSON.stringify(c.state.data);
+  for (const id of ["__proto__", "constructor", "toString"]) {
+    const join = await run(c, { command: "campaign", subcommand: "join", options: { campaign: id }, userId: "p1" });
+    assert.match(join.replies[0].content, /There is no campaign called/, `join ${id}`);
+    const edit = await run(c, { command: "campaign", subcommand: "edit", options: { campaign: id, name: "Broken" }, admin: true });
+    assert.match(edit.replies[0].content, /There is no campaign called/, `edit ${id}`);
+    const show = await run(c, { command: "campaign", subcommand: "show", options: { campaign: id } });
+    assert.match(show.replies[0].content, /There is no campaign called/, `show ${id}`);
+  }
+  assert.equal(JSON.stringify(c.state.data), before);
+  assert.equal(Object.hasOwn(Object.prototype, "players"), false);
+  assert.equal(c.state.campaign("g1", "lost-mines").name, "Lost Mines", "normal ids still work");
+});

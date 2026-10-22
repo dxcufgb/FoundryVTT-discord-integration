@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { PermissionFlagsBits } from "discord.js";
 import { handleInteraction } from "../src/discord/client.js";
 import { createCampaign, NOT_DM_MESSAGE } from "../src/campaigns.js";
-import { canRunPoll, dateLabel, parseClock, timeSlots, topDates, upcomingDates } from "../src/polls.js";
+import { canRunPoll, dateLabel, parseClock, setVotes, tally, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../src/polls.js";
 import { fakeInteraction, quietLog, tmpState } from "./helpers.js";
 
 const NOW = new Date("2026-03-01T12:00:00Z");
@@ -360,4 +360,18 @@ test("a vote that lands during the acknowledgement can still stop a date from be
   assert.match(last(time).content, /no longer has the most votes/);
   assert.ok(env.state.poll("g1", "m1"));
   assert.equal(env.created.length, 0);
+});
+
+test("votes under Object.prototype names are own entries and never reach the prototype", () => {
+  const poll = { dates: ["2026-03-07", "2026-03-08"], votes: {} };
+  toggleVote(poll, "constructor", "2026-03-07");
+  toggleAll(poll, "toString");
+  assert.deepEqual(poll.votes, { constructor: ["2026-03-07"], toString: ["2026-03-07", "2026-03-08"] });
+  assert.deepEqual(tally(poll).map((r) => r.voters.length), [2, 1]);
+  assert.throws(() => setVotes(poll, "__proto__", ["2026-03-07"]), /Invalid id/);
+  setVotes(poll, "__proto__", []);
+  setVotes(poll, "hasOwnProperty", []);
+  assert.equal(Object.getPrototypeOf(poll.votes), Object.prototype);
+  assert.equal(Object.hasOwn(Object.prototype, "2026-03-07"), false);
+  assert.equal(typeof {}.hasOwnProperty, "function");
 });

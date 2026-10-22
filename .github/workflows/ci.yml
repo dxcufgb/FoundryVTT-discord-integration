@@ -172,6 +172,9 @@ jobs:
           sudo systemctl stop foundryvtt-discord-bot
           echo "EXTRA_SETTING=kept" | sudo tee -a "$D/.env" >/dev/null
           echo marker | sudo tee "$D/data/marker" >/dev/null
+          # data/ belongs to the bot's account (here the runner): a symlink it plants must not make root write elsewhere.
+          echo original | sudo tee /opt/fvtt-notice-target >/dev/null
+          ln -s /opt/fvtt-notice-target "$D/data/update-notice.json"
           BEFORE="$(sudo sha256sum "$D/.env")"
           sudo "$D/deploy/linux/auto-update.sh" --check
           # The build under test is older than the latest release: --check-update exits with 10.
@@ -184,6 +187,12 @@ jobs:
           test "$(sudo sha256sum "$D/.env")" = "$BEFORE"
           test "$(sudo stat -c %a "$D/.env")" = "600"
           sudo grep -q '^marker$' "$D/data/marker"
+          test "$(cat /opt/fvtt-notice-target)" = original
+          test "$(stat -c %U /opt/fvtt-notice-target)" = root
+          test ! -L "$D/data/update-notice.json"
+          test "$(stat -c %U "$D/data/update-notice.json")" = root
+          grep -q '"version"' "$D/data/update-notice.json"
+          sudo rm -f /opt/fvtt-notice-target
           if grep -q '"version": "1.0.0"' "$D/package.json"; then echo "version did not change"; exit 1; fi
           systemctl is-enabled foundryvtt-discord-bot-update.timer
           # Nothing newer now: a second run is a no-op.
@@ -259,6 +268,19 @@ jobs:
           & node "$app\scripts\check-config.js" --env $envFile
           if ($LASTEXITCODE -ne 0) { throw "check-config failed" }
           Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+          # .env and data\ (and the settings folder) have an explicit, non-inherited ACL: Administrators and SYSTEM only
+          # (the task runs as SYSTEM); never Users, Everyone or Authenticated Users, also not on anything inside data\.
+          $cfg = "$env:ProgramData\FoundryVTT Discord integration"
+          Set-Content -Path "$cfg\data\acl-probe" -Value "x"
+          foreach ($p in "$cfg\.env", "$cfg\data", "$cfg\data\acl-probe", "$cfg\data\state.json", $cfg) {
+            if (-not (Test-Path -LiteralPath $p)) { continue }
+            $acl = Get-Acl -LiteralPath $p
+            $sids = $acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique
+            "ACL of $($p): $($sids -join ', ') (protected: $($acl.AreAccessRulesProtected))"
+            if ($sids | Where-Object { $_ -notin 'S-1-5-18', 'S-1-5-32-544' }) { throw "$p is open to another account: $($sids -join ', ')" }
+            if (($p -ne "$cfg\data\acl-probe") -and ($p -ne "$cfg\data\state.json") -and -not $acl.AreAccessRulesProtected) { throw "$p inherits permissions" }
+          }
+          Remove-Item "$cfg\data\acl-probe"
       - name: Auto-update to the latest release (Windows PowerShell 5.1)
         shell: powershell
         env:
@@ -312,6 +334,20 @@ jobs:
           if (-not (Get-ScheduledTask -TaskName "FoundryVTT Discord integration update" -ErrorAction SilentlyContinue)) { throw "the upgrade dropped the update task" }
           if (-not (Select-String -Path setup2.log -Pattern 'Automatic updates currently on: 1' -Quiet)) { throw "setup did not see the update task" }
           Stop-ScheduledTask -TaskName "FoundryVTT Discord integration" -ErrorAction SilentlyContinue
+          # The upgrade fixes the permissions an older version left (up to 1.6.0, Users could change data\).
+          # .env and data\ (and the settings folder) have an explicit, non-inherited ACL: Administrators and SYSTEM only
+          # (the task runs as SYSTEM); never Users, Everyone or Authenticated Users, also not on anything inside data\.
+          $cfg = "$env:ProgramData\FoundryVTT Discord integration"
+          Set-Content -Path "$cfg\data\acl-probe" -Value "x"
+          foreach ($p in "$cfg\.env", "$cfg\data", "$cfg\data\acl-probe", "$cfg\data\state.json", $cfg) {
+            if (-not (Test-Path -LiteralPath $p)) { continue }
+            $acl = Get-Acl -LiteralPath $p
+            $sids = $acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique
+            "ACL of $($p): $($sids -join ', ') (protected: $($acl.AreAccessRulesProtected))"
+            if ($sids | Where-Object { $_ -notin 'S-1-5-18', 'S-1-5-32-544' }) { throw "$p is open to another account: $($sids -join ', ')" }
+            if (($p -ne "$cfg\data\acl-probe") -and ($p -ne "$cfg\data\state.json") -and -not $acl.AreAccessRulesProtected) { throw "$p inherits permissions" }
+          }
+          Remove-Item "$cfg\data\acl-probe"
       - name: Uninstall silently
         shell: pwsh
         run: |

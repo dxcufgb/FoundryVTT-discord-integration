@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveDataFolder } from "./foundry/packages.js";
+import { own } from "./state.js";
 
 export const SUMMARY_SCHEMA = 1;
 export const DEFAULT_FOLDER = "session-summaries";
@@ -294,7 +295,7 @@ export async function summaryOverview({ state, config, readFile = defaultReadFil
       endedAt: info.endedAt?.toISOString() ?? null,
       inProgress: info.inProgress,
       hasText: Boolean(info.markdown),
-      posted: channels.map((t) => ({ guildId: t.guildId, campaign: t.campaign.name, channelId: t.channelId, at: state.data.notified[postedKey(info.id, t.channelId)] ?? null })),
+      posted: channels.map((t) => ({ guildId: t.guildId, campaign: t.campaign.name, channelId: t.channelId, at: own(state.data.notified, postedKey(info.id, t.channelId)) ?? null })),
     });
   }
   return { folder, exists, sessions, problems };

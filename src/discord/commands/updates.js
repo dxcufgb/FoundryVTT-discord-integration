@@ -90,7 +90,9 @@ export async function execute(interaction, ctx) {
   }
 
   if (sub === "settings") {
-    const [key, label] = SETTINGS[interaction.options.getString("setting", true)];
+    const setting = interaction.options.getString("setting", true);
+    if (!Object.hasOwn(SETTINGS, setting)) return interaction.reply({ content: `Unknown setting "${setting}".`, flags: MessageFlags.Ephemeral });
+    const [key, label] = SETTINGS[setting];
     const enabled = interaction.options.getBoolean("enabled", true);
     state.update((d) => {
       d.monitor.updates[key] = enabled;

@@ -44,12 +44,41 @@ export function defaultState() {
   };
 }
 
+// Ids used as keys (servers, campaigns, polls, notified keys) can come from what a user typed, so the
+// maps in the state are plain objects that are only ever read through `own` and written through
+// `put`: an id such as "constructor" or "toString" must not find what Object.prototype inherits, and
+// "__proto__" must never reach the object's prototype.
+
+/** The value stored under an id in a map, or undefined; inherited properties do not count. */
+export function own(map, key) {
+  return map !== null && typeof map === "object" && Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
+/** Store a value under an id. "__proto__" is refused: it would replace the map's prototype, never be a key. */
+export function put(map, key, value) {
+  if (String(key) === "__proto__") throw new Error(`Invalid id "${key}"`);
+  map[key] = value;
+  return value;
+}
+
+/** Remove an id from a map. Returns whether it was there. */
+export function remove(map, key) {
+  if (map === null || typeof map !== "object" || !Object.hasOwn(map, key)) return false;
+  delete map[key];
+  return true;
+}
+
+/** A server's record in the state data, created when it is missing. */
+export function ensureGuild(data, guildId) {
+  return own(data.guilds, guildId) ?? put(data.guilds, guildId, emptyGuild());
+}
+
 function deepMerge(base, extra) {
   if (Array.isArray(base) || Array.isArray(extra) || typeof base !== "object" || base === null || typeof extra !== "object" || extra === null) {
     return extra === undefined ? base : extra;
   }
   const out = { ...base };
-  for (const [key, value] of Object.entries(extra)) out[key] = deepMerge(base[key], value);
+  for (const [key, value] of Object.entries(extra)) if (key !== "__proto__") out[key] = deepMerge(own(base, key), value);
   return out;
 }
 
@@ -71,7 +100,8 @@ export class StateStore {
     }
     let parsed;
     try {
-      parsed = JSON.parse(raw);
+      // The bot never writes a "__proto__" key; one in the file is dropped wherever it is.
+      parsed = JSON.parse(raw, (key, value) => (key === "__proto__" ? undefined : value));
     } catch (err) {
       throw new Error(`State file ${this.file} is not valid JSON (${err.message}). Fix or delete it.`);
     }
@@ -98,13 +128,13 @@ export class StateStore {
   // --- guild channel settings -----------------------------------------------
 
   guild(guildId) {
-    return this.data.guilds[guildId] ?? emptyGuild();
+    return own(this.data.guilds, guildId) ?? emptyGuild();
   }
 
   setChannel(guildId, type, channelId) {
     assertMessageType(type);
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= emptyGuild());
+      const g = ensureGuild(d, guildId);
       g.channels[type] = channelId;
       return g;
     });
@@ -113,17 +143,15 @@ export class StateStore {
   clearChannel(guildId, type) {
     assertMessageType(type);
     return this.update((d) => {
-      const g = d.guilds[guildId];
+      const g = own(d.guilds, guildId);
       if (!g) return false;
-      const had = type in g.channels;
-      delete g.channels[type];
-      return had;
+      return remove(g.channels, type);
     });
   }
 
   setMentionRole(guildId, roleId) {
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= emptyGuild());
+      const g = ensureGuild(d, guildId);
       g.mentionRole = roleId;
       return g;
     });
@@ -134,9 +162,9 @@ export class StateStore {
    * channel, else the "default" channel, else null.
    */
   resolveChannel(guildId, type) {
-    const g = this.data.guilds[guildId];
+    const g = own(this.data.guilds, guildId);
     if (!g) return null;
-    return g.channels[type] ?? g.channels.default ?? null;
+    return own(g.channels, type) ?? own(g.channels, "default") ?? null;
   }
 
   // --- campaigns ------------------------------------------------------------------
@@ -149,13 +177,13 @@ export class StateStore {
 
   /** All campaigns of a server, sorted by name. */
   campaigns(guildId) {
-    const g = this.data.guilds[guildId];
-    return Object.values(g?.campaigns ?? {}).sort((a, b) => a.name.localeCompare(b.name));
+    const g = own(this.data.guilds, guildId);
+    return Object.values(own(g, "campaigns") ?? {}).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** One campaign by its id (the slug of its name), or null. */
   campaign(guildId, campaignId) {
-    return this.data.guilds[guildId]?.campaigns?.[campaignId] ?? null;
+    return own(own(own(this.data.guilds, guildId), "campaigns"), campaignId) ?? null;
   }
 
   /** The campaign a world is bound to in a server, or null. */
@@ -176,9 +204,9 @@ export class StateStore {
   /** Insert or replace a campaign. */
   saveCampaign(guildId, campaign) {
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= emptyGuild());
+      const g = ensureGuild(d, guildId);
       g.campaigns ??= {};
-      g.campaigns[campaign.id] = campaign;
+      put(g.campaigns, campaign.id, campaign);
       return campaign;
     });
   }
@@ -188,7 +216,7 @@ export class StateStore {
     const existing = this.campaign(guildId, campaignId);
     if (!existing) return null;
     return this.update((d) => {
-      const c = d.guilds[guildId].campaigns[campaignId];
+      const c = own(own(d.guilds, guildId).campaigns, campaignId);
       mutator(c);
       return c;
     });
@@ -196,10 +224,7 @@ export class StateStore {
 
   deleteCampaign(guildId, campaignId) {
     return this.update((d) => {
-      const g = d.guilds[guildId];
-      if (!g?.campaigns?.[campaignId]) return false;
-      delete g.campaigns[campaignId];
-      return true;
+      return remove(own(own(d.guilds, guildId), "campaigns"), campaignId);
     });
   }
 
@@ -208,14 +233,14 @@ export class StateStore {
   // An open planning poll, keyed by the id of the Discord message that shows it.
 
   poll(guildId, messageId) {
-    return this.data.guilds[guildId]?.polls?.[messageId] ?? null;
+    return own(own(own(this.data.guilds, guildId), "polls"), messageId) ?? null;
   }
 
   savePoll(guildId, poll) {
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= emptyGuild());
+      const g = ensureGuild(d, guildId);
       g.polls ??= {};
-      g.polls[poll.id] = poll;
+      put(g.polls, poll.id, poll);
       return poll;
     });
   }
@@ -224,7 +249,7 @@ export class StateStore {
   updatePoll(guildId, messageId, mutator) {
     if (!this.poll(guildId, messageId)) return null;
     return this.update((d) => {
-      const p = d.guilds[guildId].polls[messageId];
+      const p = own(own(d.guilds, guildId).polls, messageId);
       mutator(p);
       return p;
     });
@@ -232,10 +257,7 @@ export class StateStore {
 
   deletePoll(guildId, messageId) {
     return this.update((d) => {
-      const g = d.guilds[guildId];
-      if (!g?.polls?.[messageId]) return false;
-      delete g.polls[messageId];
-      return true;
+      return remove(own(own(d.guilds, guildId), "polls"), messageId);
     });
   }
 
@@ -243,7 +265,7 @@ export class StateStore {
 
   setGmRole(guildId, roleId) {
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= emptyGuild());
+      const g = ensureGuild(d, guildId);
       g.gmRole = roleId;
       return g;
     });
@@ -252,7 +274,7 @@ export class StateStore {
   /** What the bot last warned this server about (a key), so the same problem is announced once. */
   setHealthIssue(guildId, key) {
     return this.update((d) => {
-      const g = (d.guilds[guildId] ??= emptyGuild());
+      const g = ensureGuild(d, guildId);
       g.healthIssue = key;
       return g;
     });
@@ -261,12 +283,12 @@ export class StateStore {
   // --- notified-once bookkeeping ----------------------------------------------
 
   wasNotified(key) {
-    return Boolean(this.data.notified[key]);
+    return Boolean(own(this.data.notified, key));
   }
 
   markNotified(key, when = new Date()) {
     return this.update((d) => {
-      d.notified[key] = when.toISOString();
+      put(d.notified, key, when.toISOString());
     });
   }
 }

@@ -5,6 +5,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits } from "discord.js";
 import { localParts } from "./restartWindow.js";
 import { mentionUser } from "./campaigns.js";
+import { own, put, remove } from "./state.js";
 
 /** A message holds 5 rows of 5 buttons: 4 rows of dates and a row for Toggle all / Decide date / Delete poll. */
 export const MAX_POLL_DATES = 20;
@@ -56,20 +57,20 @@ export function createPoll({ id, channelId, campaign, dates, createdBy, timezone
 /** Replace one user's votes (an empty list withdraws them). */
 export function setVotes(poll, userId, dates) {
   const valid = poll.dates.filter((d) => dates.includes(d));
-  if (valid.length) poll.votes[userId] = valid;
-  else delete poll.votes[userId];
+  if (valid.length) put(poll.votes, userId, valid);
+  else remove(poll.votes, userId);
 }
 
 /** Add or withdraw one user's vote for one date. */
 export function toggleVote(poll, userId, date) {
   if (!poll.dates.includes(date)) return;
-  const current = poll.votes[userId] ?? [];
+  const current = own(poll.votes, userId) ?? [];
   setVotes(poll, userId, current.includes(date) ? current.filter((d) => d !== date) : [...current, date]);
 }
 
 /** Vote for every date, or withdraw all votes when the user already has them all. */
 export function toggleAll(poll, userId) {
-  const all = (poll.votes[userId] ?? []).length === poll.dates.length;
+  const all = (own(poll.votes, userId) ?? []).length === poll.dates.length;
   setVotes(poll, userId, all ? [] : poll.dates);
 }
 
@@ -115,7 +116,7 @@ export function buildPollEmbed(poll, campaign, { menu = false } = {}) {
   const rows = tally(poll);
   const lines = rows.map(({ date, voters }) => `**${dateLabel(date)}** — ${voters.length} vote${voters.length === 1 ? "" : "s"}${voters.length ? `: ${voters.map(mentionUser).join(" ")}` : ""}`);
   const members = campaignMembers(campaign ?? { dm: poll.createdBy, players: [] });
-  const waiting = members.filter((u) => !poll.votes[u]);
+  const waiting = members.filter((u) => !own(poll.votes, u));
   return new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle(`📅 When can we play ${poll.campaignName}?`)

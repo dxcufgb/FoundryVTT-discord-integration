@@ -21,7 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { emptyGuild, MESSAGE_TYPES, MONITORS } from "../state.js";
+import { ensureGuild, MESSAGE_TYPES, MONITORS } from "../state.js";
 import { describeWindow } from "../restartWindow.js";
 import { isCurrentSession } from "../campaigns.js";
 import { MAX_AGE_HOURS, postSessionSummaries, summaryOverview, summarySettings } from "../sessionSummaries.js";
@@ -323,8 +323,7 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
       }
     }
     ctx.state.update((d) => {
-      d.guilds[guild.id] ??= emptyGuild();
-      const g = d.guilds[guild.id];
+      const g = ensureGuild(d, guild.id);
       for (const [type, id] of Object.entries(next)) {
         if (id) g.channels[type] = id;
         else delete g.channels[type];
