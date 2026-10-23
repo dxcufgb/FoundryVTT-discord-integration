@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-23
+
 ### Security
 
 - **Ids that are names of `Object.prototype` no longer reach it.** Campaign, poll, server and other ids are looked up only among the stored ones (`Object.hasOwn`), so `/campaign join campaign:__proto__` no longer crashes the command, `/campaign edit campaign:constructor …` no longer saves a broken campaign, and no id can change `Object.prototype`. A `__proto__` id is refused when saving, and a `__proto__` key in `state.json` (which the bot never writes) is ignored on loading. Existing `state.json` files load and save exactly as before.
@@ -148,7 +150,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.1...v1.4.2
