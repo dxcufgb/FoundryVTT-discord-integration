@@ -13,7 +13,8 @@
 # It asks GitHub for the latest release, and only if that is a newer version downloads the Linux
 # bundle (foundryvtt-discord-integration-X.Y.Z-linux.tar.gz), verifies its SHA-256 against the release's
 # SHA256SUMS.txt, and installs it with the bundle's own installer (--non-interactive --no-start, the
-# same upgrade as a manual run). .env is restored byte for byte afterwards and data/ is never touched. If anything fails, or the bot does
+# same upgrade as a manual run). .env is restored byte for byte afterwards and data/ is never touched (only the release
+# notes are put there, never through a link the bot's account made). If anything fails, or the bot does
 # not come back up, the previous version is put back. Logs go to the journal:
 #   journalctl -u foundryvtt-discord-bot-update
 # Optional GitHub token (only needed for a private fork): /etc/foundryvtt-discord-integration/github-token (root, mode 600).
@@ -40,7 +41,7 @@ main() {
       --check-update) mode=check; status_exit=1; shift ;;
       --now) mode=update; shift ;;
       --dir) dir="${2:?--dir needs a folder}"; shift 2 ;;
-      -h|--help) sed -n '2,19p' "$0"; return 0 ;;
+      -h|--help) sed -n '2,20p' "$0"; return 0 ;;
       *) die "Unknown option: $1 (try --help)" ;;
     esac
   done
@@ -61,6 +62,8 @@ main() {
     bad="$(find "$parent" -maxdepth 0 \( ! -user root -o -perm -o+w -o \( -perm -g+w ! -group root \) \) -print 2>/dev/null)"
   done
   [[ -z "$bad" ]] || die "$bad can be changed by an account other than root; refusing to run it as root. Reinstall with deploy/linux/install.sh (it makes the program files root-owned)."
+  # .env and data/ belong to the bot's account; root copies .env and writes into data/, so never through a symlink.
+  [[ ! -L "$dir/.env" && ! -L "$dir/data" ]] || die "$dir/.env or $dir/data is a symlink; refusing to update. Replace it with the real file or folder."
   local node
   node="$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' "$unit" 2>/dev/null || true)"
   [[ -x "$node" ]] || node="$(command -v node || true)"
@@ -133,11 +136,7 @@ main() {
   # The installer rewrites .env from the values it knows; put back the exact file (comments, extra settings).
   [[ -f "$WORK/env.bak" ]] && cp -p "$WORK/env.bak" "$dir/.env"
   # Release notes for the bot's "updated" DM to server admins (read and deleted by the bot).
-  local notice
-  notice="$(sed -n 's/^notice=//p' <<<"$out")"
-  if [[ -f "$notice" && -d "$dir/data" ]]; then
-    install -m 644 -o "$(stat -c %U "$dir/data")" "$notice" "$dir/data/update-notice.json" || true
-  fi
+  install_notice "$(sed -n 's/^notice=//p' <<<"$out")" "$dir/data" "$(sed -n 's/^User=//p' "$unit")" || true
   systemctl daemon-reload || true
   if [[ $was_active -eq 1 ]]; then
     if ! restart_and_check; then
@@ -149,6 +148,38 @@ main() {
   else
     log "Updated to version $latest. $SERVICE was not running before and was not started."
   fi
+}
+
+# install_notice <notice file> <data folder> <the bot's user>: put the release notes into the bot's data folder as
+# update-notice.json. That folder belongs to the bot's account, which can put a symlink (to a file or a folder anywhere)
+# or a hard link at any name in it, so root never writes through an existing name there: the notes go into a new file
+# under an unguessable name, created with O_CREAT|O_EXCL|O_NOFOLLOW (dd conv=excl oflag=nofollow fails on anything that
+# already exists, a symlink included), owned by root and readable by all (mode 644 from the umask; the bot only reads
+# and deletes it), and are then renamed over update-notice.json. rename(2) replaces a symlink itself, never its target,
+# and mv -T refuses to move into a folder of that name. A data folder that is a symlink, or not owned by the bot's
+# user, is skipped with a log line (the bot then falls back to its bundled CHANGELOG.md).
+install_notice() {
+  local notice="$1" data="$2" user="$3" owner tmp
+  [[ -n "$notice" && -f "$notice" ]] || return 0
+  if [[ -L "$data" || ! -d "$data" ]]; then
+    log "Not writing the release notes: $data is not a folder (or is a symlink)."
+    return 0
+  fi
+  owner="$(stat -c %U "$data")"
+  if [[ -z "$user" || "$owner" != "$user" ]]; then
+    log "Not writing the release notes: $data belongs to '$owner', not to the bot's user '${user:-?}'."
+    return 0
+  fi
+  tmp="$(mktemp -u "$data/.update-notice.XXXXXXXXXX")"
+  if ! (umask 022 && dd if="$notice" of="$tmp" conv=excl oflag=nofollow status=none 2>/dev/null); then
+    log "Not writing the release notes: could not create a new file in $data."
+    return 0
+  fi
+  if ! mv -T -f "$tmp" "$data/update-notice.json"; then
+    rm -f "$tmp"
+    log "Not writing the release notes: could not rename them to $data/update-notice.json."
+  fi
+  return 0
 }
 
 # Restart the bot and report whether it is still running 15 seconds later.

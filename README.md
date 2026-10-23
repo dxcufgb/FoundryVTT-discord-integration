@@ -146,7 +146,7 @@ It is off by default. To turn it on, set `ADMIN_PORT` (for example `ADMIN_PORT=8
 
 ```
 cd /opt/foundryvtt-discord-integration && sudo node scripts/admin-password.js   # Linux installation
-npm run admin-password                                                          # from source / Windows
+npm run admin-password                                                          # from source / Windows (as administrator)
 sudo systemctl restart foundryvtt-discord-bot
 ```
 

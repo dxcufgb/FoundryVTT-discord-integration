@@ -32,6 +32,7 @@ export async function execute(interaction, { state, monitor }) {
   if (sub === "enable" || sub === "disable") {
     const what = interaction.options.getString("what", true);
     const value = sub === "enable";
+    if (what !== "all" && !MONITORS.includes(what)) return interaction.reply({ content: `Unknown monitor "${what}".`, flags: MessageFlags.Ephemeral });
     const targets = what === "all" ? MONITORS : [what];
     state.update((d) => {
       for (const t of targets) d.monitor.enabled[t] = value;

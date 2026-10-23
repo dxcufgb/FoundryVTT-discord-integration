@@ -18,6 +18,8 @@
   installer keeps it under %ProgramData%\FoundryVTT Discord integration).
   -NodeExe uses that node.exe instead of the one on the PATH.
   -LogFile appends everything this script prints to a file (used by setup.exe).
+  .env and the data folder are restricted to Administrators, SYSTEM and the task's account
+  (protect-config.ps1): edit .env from an elevated editor.
   -AutoUpdate also turns on automatic updates (auto-update.ps1 -Enable: a daily task
   that installs new releases). Re-running this script without it keeps the current choice;
   turn them off with .\deploy\windows\auto-update.ps1 -Disable.
@@ -56,9 +58,15 @@ try {
 
   $envFile = if ($EnvFile) { $EnvFile } else { Join-Path $InstallDir ".env" }
   $envArgs = if ($EnvFile) { " --env `"$EnvFile`"" } else { "" }
+  # .env (the Discord token) and the data folder (state.json, admin.json): Administrators, SYSTEM and the account the
+  # task runs as only, never Users. Also fixes the permissions of installations made before (protect-config.ps1).
+  $protect = @{ EnvFile = $envFile; RunAs = $(if ($RunAsUser) { $RunAsUser } else { "S-1-5-18" }) }
+  $configDir = Join-Path $env:ProgramData "FoundryVTT Discord integration"
+  if (Test-Path -LiteralPath $configDir) { $protect.ConfigDir = $configDir }
   if (-not (Test-Path $envFile)) {
     if ($EnvFile) { throw "Configuration file $EnvFile does not exist." }
     Copy-Item (Join-Path $InstallDir ".env.example") $envFile
+    & (Join-Path $PSScriptRoot "protect-config.ps1") @protect
     Write-Output ""
     Write-Output "Created $envFile from the example. Fill in DISCORD_TOKEN, DISCORD_CLIENT_ID and FOUNDRY_DATA_PATH, then run this script again."
     exit 0
@@ -71,6 +79,7 @@ try {
     try { & npm @npmArgs; if ($LASTEXITCODE -ne 0) { throw "npm ci failed" } } finally { Pop-Location }
   }
   New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "data") | Out-Null
+  & (Join-Path $PSScriptRoot "protect-config.ps1") @protect
 
   if (-not $SkipConfigCheck) {
     Write-Output "Checking configuration"

@@ -15,7 +15,8 @@
   otherwise the -windows.zip), verifies its SHA-256 against the release's SHA256SUMS.txt (for a
   setup.exe from a release up to v1.3.2, which listed it only in SHA256SUMS-setup.txt, against that
   file instead; no checksum, no update) and installs it the same way as a manual upgrade:
-  setup.exe /VERYSILENT, or for a zip installation copying the new files over the old ones (.env and data\ are never touched). The configuration
+  setup.exe /VERYSILENT, or for a zip installation copying the new files over the old ones (.env and data\ are never touched,
+  except for the release notes, and their permissions: protect-config.ps1 runs first on every run and on -Enable). The configuration
   file(s) are restored byte for byte afterwards and the bot's task is restarted. A failed zip
   update is rolled back (and the rollback checked: ROLLBACK FAILED in the log means manual
   recovery, the backup is kept); a failed setup.exe rolls back its own changes.
@@ -127,7 +128,7 @@ function Register-CommandSet {
 function Register-UpdateTask {
   $script = Join-Path $InstallDir "deploy\windows\auto-update.ps1"
   if (-not (Test-Path (Join-Path $InstallDir "scripts\self-update.js")) -or -not (Test-Path $script)) { throw "$InstallDir has no auto-updater (install a newer version first)." }
-  foreach ($p in $InstallDir, (Join-Path $InstallDir "deploy\windows"), (Join-Path $InstallDir "scripts"), (Join-Path $InstallDir "src"), $script, (Join-Path $InstallDir "scripts\self-update.js"), (Join-Path $InstallDir "src\selfUpdate.js")) {
+  foreach ($p in $InstallDir, (Join-Path $InstallDir "deploy\windows"), (Join-Path $InstallDir "scripts"), (Join-Path $InstallDir "src"), $script, (Join-Path $InstallDir "deploy\windows\protect-config.ps1"), (Join-Path $InstallDir "scripts\self-update.js"), (Join-Path $InstallDir "src\selfUpdate.js")) {
     if (Test-WritableByUser $p) { throw "$p can be changed by non-administrators, so a task running as SYSTEM must not run from it. Install to a folder only Administrators can write (for example with setup.exe under Program Files)." }
   }
   if (Test-Path $TokenFile) { Protect-Path $TokenFile; Write-UpdateLog "Restricted $TokenFile to Administrators and SYSTEM" }
@@ -165,6 +166,52 @@ function Register-UpdateTask {
 "@
   Register-ScheduledTask -TaskName $UpdateTaskName -Xml $xml -Force | Out-Null
   Write-UpdateLog "Automatic updates on: task '$UpdateTaskName' checks for a new release daily (log: $LogFile)"
+}
+
+# Give the settings folder, .env and data\ the permissions of this version (protect-config.ps1: Administrators, SYSTEM
+# and the bot task's account only), on every run, so installations made by older versions are fixed too. A failure is
+# logged, not fatal.
+function Protect-Config {
+  $script = Join-Path $InstallDir "deploy\windows\protect-config.ps1"
+  if (-not (Test-Path $script)) { return }
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  $runAs = if ($task -and $task.Principal.UserId) { $task.Principal.UserId } else { "S-1-5-18" }
+  $envFiles = @((Join-Path $ConfigDir ".env"), (Join-Path $InstallDir ".env")) | Where-Object { Test-Path -LiteralPath $_ }
+  try {
+    $lines = @(& $script -ConfigDir $ConfigDir -RunAs $runAs)
+    foreach ($f in $envFiles) { $lines += @(& $script -EnvFile $f -RunAs $runAs) }
+    foreach ($l in $lines) { Write-UpdateLog "  $l" }
+  } catch {
+    Write-UpdateLog "Could not restrict the permissions of $ConfigDir ($($_.Exception.Message)); run deploy\windows\install-task.ps1 again."
+  }
+}
+
+# Put the release notes into the data folder as update-notice.json. The bot's account can change that folder, so
+# SYSTEM never writes through an existing name there (a link could lead anywhere): the notes go into a new file under
+# a random name (CreateNew fails on anything that exists, a link included), and that file is then moved to
+# update-notice.json after deleting whatever had that name (deleting a link removes the link, not its target; if
+# the name is taken again in between, the move fails instead of overwriting). A data folder that is a link is skipped.
+function Copy-Notice([string]$Notice, [string]$DataDir) {
+  if (-not (Test-Path -LiteralPath $DataDir -PathType Container)) { return }
+  if ((Get-Item -LiteralPath $DataDir -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+    Write-UpdateLog "Not writing the release notes: $DataDir is a link."
+    return
+  }
+  $target = Join-Path $DataDir "update-notice.json"
+  $tmp = Join-Path $DataDir (".update-notice." + [guid]::NewGuid().ToString("N"))
+  try {
+    $bytes = [IO.File]::ReadAllBytes($Notice)
+    $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+    $old = Get-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+    if ($old) {
+      if ($old.PSIsContainer) { [IO.Directory]::Delete($target) } else { [IO.File]::Delete($target) }
+    }
+    [IO.File]::Move($tmp, $target)
+  } catch {
+    Write-UpdateLog "Not writing the release notes to $($target): $($_.Exception.Message)"
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 function Copy-Payload([string]$From, [string]$To) {
@@ -266,9 +313,12 @@ function Invoke-Update {
       }
     }
 
+    # The new version's permissions (a setup.exe did this through install-task.ps1 already; copied zip files did not).
+    Protect-Config
+
     # Release notes for the bot's "updated" DM to server admins (read and deleted by the bot).
     $dataDir = if ($isSetup) { Join-Path $ConfigDir "data" } else { Join-Path $InstallDir "data" }
-    if ($r.notice -and (Test-Path $r.notice) -and (Test-Path $dataDir)) { Copy-Item -Path $r.notice -Destination (Join-Path $dataDir "update-notice.json") -Force }
+    if ($r.notice -and (Test-Path $r.notice)) { Copy-Notice -Notice $r.notice -DataDir $dataDir }
 
     if ($task -and -not $wasRunning) {
       # The bot was stopped on purpose: keep it stopped (setup.exe starts the task it registers).
@@ -296,6 +346,7 @@ try {
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
   if ((Test-Path $LogFile) -and (Get-Item $LogFile).Length -gt 1MB) { Move-Item -Path $LogFile -Destination "$LogFile.old" -Force }
 
+  if (-not $Check -and -not $Disable) { Protect-Config }
   if ($Enable) { Register-UpdateTask; exit 0 }
   if ($Disable) {
     if (Get-ScheduledTask -TaskName $UpdateTaskName -ErrorAction SilentlyContinue) {

@@ -82,3 +82,75 @@ test("campaigns: per server, one campaign per world, update and delete", () => {
   assert.equal(s.deleteCampaign("nope", "a"), false);
   assert.deepEqual(s.campaigns("g").map((c) => c.id), ["b"]);
 });
+
+test("prototype names as ids: lookups find nothing, writes never touch Object.prototype", () => {
+  const s = new StateStore(path.join(tmpDir(), "s.json")).load();
+  s.saveCampaign("g", { id: "a", name: "Alpha", world: "w1", dm: "d", players: [] });
+  s.savePoll("g", { id: "m1", campaignId: "a", dates: [], votes: {} });
+  s.markNotified("module:x@1.0", new Date("2026-01-01T00:00:00Z"));
+  const before = JSON.stringify(s.data);
+  for (const id of ["__proto__", "constructor", "toString", "hasOwnProperty", "valueOf"]) {
+    assert.equal(s.campaign("g", id), null, `campaign ${id}`);
+    assert.equal(s.campaign(id, "a"), null, `guild ${id}`);
+    assert.equal(s.updateCampaign("g", id, (c) => (c.polluted = true)), null, `updateCampaign ${id}`);
+    assert.equal(s.updateCampaign(id, "a", (c) => (c.polluted = true)), null, `updateCampaign guild ${id}`);
+    assert.equal(s.deleteCampaign("g", id), false, `deleteCampaign ${id}`);
+    assert.equal(s.deleteCampaign(id, "a"), false);
+    assert.equal(s.poll("g", id), null, `poll ${id}`);
+    assert.equal(s.updatePoll("g", id, (p) => (p.polluted = true)), null, `updatePoll ${id}`);
+    assert.equal(s.deletePoll("g", id), false, `deletePoll ${id}`);
+    assert.equal(s.resolveChannel(id, "status"), null);
+    assert.equal(s.clearChannel(id, "status"), false);
+    assert.equal(s.wasNotified(id), false, `notified ${id}`);
+    assert.deepEqual(s.guild(id), { channels: {}, mentionRole: null, gmRole: null, healthIssue: null, campaigns: {}, polls: {} });
+    assert.deepEqual(s.campaigns(id), []);
+  }
+  assert.equal(JSON.stringify(s.data), before, "nothing changed");
+  assert.equal(Object.prototype.polluted, undefined);
+  assert.equal(Object.hasOwn(Object.prototype, "polluted"), false);
+
+  // Writes under such ids: "__proto__" is refused, the others are ordinary own keys.
+  assert.throws(() => s.setChannel("__proto__", "status", "c"), /Invalid id/);
+  assert.throws(() => s.saveCampaign("g", { id: "__proto__", name: "x", world: "w9", dm: "d", players: [] }), /Invalid id/);
+  assert.throws(() => s.savePoll("g", { id: "__proto__", votes: {} }), /Invalid id/);
+  assert.throws(() => s.markNotified("__proto__"), /Invalid id/);
+  assert.equal(Object.getPrototypeOf(s.data.guilds), Object.prototype);
+  assert.equal(Object.getPrototypeOf(s.data.guilds.g.campaigns), Object.prototype);
+  s.saveCampaign("g", { id: "constructor", name: "Constructor", world: "w2", dm: "d", players: [] });
+  assert.equal(s.campaign("g", "constructor").name, "Constructor");
+  s.updateCampaign("g", "constructor", (c) => c.players.push("p"));
+  assert.deepEqual(s.campaign("g", "constructor").players, ["p"]);
+  s.setChannel("toString", "status", "c1");
+  assert.equal(s.resolveChannel("toString", "status"), "c1");
+  assert.equal(s.deleteCampaign("g", "constructor"), true);
+  assert.equal(s.campaign("g", "constructor"), null);
+  assert.equal(typeof {}.constructor, "function");
+  assert.equal(typeof {}.toString, "function");
+
+  // Normal ids still work and the file looks exactly as before.
+  assert.equal(s.campaign("g", "a").name, "Alpha");
+  assert.equal(s.poll("g", "m1").campaignId, "a");
+  assert.equal(s.wasNotified("module:x@1.0"), true);
+});
+
+test("a state file is loaded and saved unchanged; a __proto__ key in it is dropped", () => {
+  const file = path.join(tmpDir(), "state.json");
+  const s = new StateStore(file).load();
+  s.setChannel("g1", "status", "c1");
+  s.saveCampaign("g1", { id: "a", name: "Alpha", world: "w1", dm: "d", players: ["p"] });
+  s.savePoll("g1", { id: "m1", campaignId: "a", dates: ["2026-03-01"], votes: { p: ["2026-03-01"] } });
+  s.markNotified("module:x@1.0", new Date("2026-01-01T00:00:00Z"));
+  const written = fs.readFileSync(file, "utf8");
+  const again = new StateStore(file).load();
+  again.save();
+  assert.equal(fs.readFileSync(file, "utf8"), written, "byte for byte the same");
+
+  const tampered = JSON.parse(written);
+  fs.writeFileSync(file, written.replace('"guilds": {', '"guilds": {\n    "__proto__": { "channels": { "status": "evil" }, "polluted": true },').replace('"campaigns": {', '"campaigns": {\n        "__proto__": { "polluted": true },'));
+  const loaded = new StateStore(file).load();
+  assert.equal(Object.getPrototypeOf(loaded.data.guilds), Object.prototype);
+  assert.equal(Object.getPrototypeOf(loaded.data.guilds.g1.campaigns), Object.prototype);
+  assert.equal(loaded.resolveChannel("nope", "status"), null);
+  assert.equal(Object.prototype.polluted, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(loaded.data)), tampered);
+});

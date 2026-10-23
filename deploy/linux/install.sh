@@ -473,6 +473,9 @@ if [[ $COPIED -eq 1 ]]; then
   find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec chown -R root:root {} + -exec chmod -R go-w {} +
 fi
 
+# Root writes .env and hands data/ to the bot's account: never through a symlink someone put there.
+[[ ! -L "$INSTALL_DIR/.env" ]] || die "$INSTALL_DIR/.env is a symlink; remove it (or replace it with the real file) and run the installer again."
+[[ ! -L "$INSTALL_DIR/data" ]] || die "$INSTALL_DIR/data is a symlink; replace it with the real folder and run the installer again."
 umask 077
 {
   echo "# Written by deploy/linux/install.sh on $(date -Is). Edit and run: sudo systemctl restart $SERVICE"
@@ -490,8 +493,15 @@ umask 077
 } > "$INSTALL_DIR/.env"
 umask 022
 mkdir -p "$INSTALL_DIR/data"
-chown -R "$RUN_USER" "$INSTALL_DIR/data" "$INSTALL_DIR/.env"
+chown -h "$RUN_USER" "$INSTALL_DIR/data" "$INSTALL_DIR/.env"
 chmod 600 "$INSTALL_DIR/.env"
+# What is in data/ goes to the bot's account too (it changes hands when --user changes). The folder belonged to an
+# account that is not root, so nothing in it is followed: symlinks are skipped (find never descends into them, and
+# -execdir works from the folder find is in), and so are files with more than one hard link, which could be a link
+# to a file elsewhere.
+find "$INSTALL_DIR/data" -mindepth 1 ! -type l ! -user "$RUN_USER" \( -type d -o -links 1 \) -execdir chown -h "$RUN_USER" {} +
+LINKED="$(find "$INSTALL_DIR/data" -mindepth 1 ! -type l ! -type d ! -user "$RUN_USER" -links +1 -print -quit)"
+[[ -z "$LINKED" ]] || warn "Not handed to $RUN_USER (more than one hard link): $LINKED and maybe others in $INSTALL_DIR/data."
 ok "Configuration written to $INSTALL_DIR/.env"
 
 step "Checking the configuration as $RUN_USER"

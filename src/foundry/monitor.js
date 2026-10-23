@@ -19,6 +19,7 @@
 
 import { diffPackages, notifiedKey, packageKey, removedKey } from "./updates.js";
 import { isInsideWindow, windowAt } from "../restartWindow.js";
+import { remove } from "../state.js";
 
 export class FoundryMonitor {
   /**
@@ -239,7 +240,7 @@ export class FoundryMonitor {
       }
       item.apply();
       // A package that comes back may be removed again later; allow that removal to be announced.
-      if (item.type === "packageInstalled") this.state.update((d) => { delete d.notified[removedKey(item.pkg)]; });
+      if (item.type === "packageInstalled") this.state.update((d) => { remove(d.notified, removedKey(item.pkg)); });
     }
     this.state.update((d) => {
       d.packages = next;
