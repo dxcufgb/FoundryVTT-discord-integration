@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-10-26
+
+### Security
+
+- **undici updated to 6.29.1.** undici is the HTTP client discord.js uses to talk to Discord. 6.29.0, which 1.6.1 and older install, has two high-severity denial-of-service bugs: unbounded memory use in its EventSource parser ([GHSA-4qv8-2p9j-2685](https://github.com/advisories/GHSA-4qv8-2p9j-2685)) and an unhandled error on a response with too many content encodings ([GHSA-xjj6-f33q-929c](https://github.com/advisories/GHSA-xjj6-f33q-929c)). Nothing else changes.
+
 ## [1.6.1] - 2026-10-23
 
 ### Security
@@ -150,7 +156,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.4.2...v1.5.0
