@@ -45,6 +45,8 @@ const UI_FILES = {
   "/": { file: "index.html", type: "text/html; charset=utf-8" },
   "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
   "/app.css": { file: "app.css", type: "text/css; charset=utf-8" },
+  "/logo.png": { file: "logo.png", type: "image/png" },
+  "/favicon.png": { file: "favicon.png", type: "image/png" },
 };
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
@@ -357,9 +359,12 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
     const ip = clientIp(req);
     const f = failures.get(ip);
     globalFailures = globalFailures.filter((t) => t > now() - GLOBAL_WINDOW_MS);
-    if ((f && f.until > now()) || globalFailures.length >= GLOBAL_FAILURES) {
+    // A per-address lockout is a hard stop. The global flood pause never blocks a request that proves it knows
+    // the password, so failed logins from other addresses cannot lock the real administrator out.
+    if (f && f.until > now()) {
       return sendJson(res, 429, { error: "too many failed logins; try again in a few minutes" });
     }
+    const flooded = globalFailures.length >= GLOBAL_FAILURES;
     // Count the attempt before the slow password check, so parallel requests cannot get past the limits.
     const count = (f && !f.until ? f.count : 0) + 1;
     failures.set(ip, { count, until: count >= LOGIN_FAILURES ? now() + LOCKOUT_MS : 0 });
@@ -375,6 +380,7 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
       return sendJson(res, 200, await state(s.csrf), { "Set-Cookie": cookie(req, s.id, SESSION_MS / 1000) });
     }
     log.warn(`admin page: failed login from ${ip}`);
+    if (flooded) return sendJson(res, 429, { error: "too many failed logins; try again in a few minutes" });
     return sendJson(res, 401, { error: "wrong password" });
   }
 

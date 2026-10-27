@@ -10,6 +10,9 @@ import path from "node:path";
 
 export const PACKAGE_TYPES = Object.freeze({ system: "system.json", module: "module.json", world: "world.json" });
 
+// A world id is a Foundry package folder name; reject anything that could escape the worlds folder.
+const WORLD_ID_RE = /^[A-Za-z0-9._-]+$/;
+
 /** Accept either the user-data root (containing Data/) or the Data folder itself. */
 export function resolveDataFolder(dataPath) {
   if (!dataPath) return null;
@@ -112,7 +115,7 @@ export function listWorlds(dataPath) {
 /** Look up a world's manifest (for its title and system) by id. */
 export function readWorld(dataPath, worldId) {
   const folder = resolveDataFolder(dataPath);
-  if (!folder || !worldId) return null;
+  if (!folder || !worldId || worldId === "." || worldId === ".." || !WORLD_ID_RE.test(worldId)) return null;
   return normaliseManifest("world", readJson(path.join(folder, "worlds", worldId, "world.json")), worldId);
 }
 
