@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-10-27
+
 ### Security
 
 - **A flood of failed logins can no longer lock the administrator out of the administration page.** After 50 failed logins from any addresses within 15 minutes the page refused every login, including the right password, so anyone who could reach the port could keep the real administrator out. Wrong passwords are still refused during such a flood and an address is still locked out for five minutes after five wrong passwords, but the right password now always gets in.
@@ -167,7 +169,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...HEAD
+[1.6.3]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.5.0...v1.6.0
