@@ -1,5 +1,7 @@
 # Foundry VTT Discord integration
 
+<p align="center"><img src="assets/icon.png" alt="FoundryVTT Discord integration logo" width="128" height="128"></p>
+
 [![Foundry v13](https://img.shields.io/github/v/release/dxcufgb/FoundryVTT-discord-integration?label=Foundry%20v13&logo=foundryvirtualtabletop&color=ff6400)](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/dxcufgb)\
 [![CI](https://img.shields.io/github/actions/workflow/status/dxcufgb/FoundryVTT-discord-integration/ci.yml?branch=main&label=CI)](https://github.com/dxcufgb/FoundryVTT-discord-integration/actions/workflows/ci.yml)
@@ -153,6 +155,10 @@ sudo systemctl restart foundryvtt-discord-bot
 ```
 
 Then open `https://<this machine>:8486/`. The page uses HTTPS with a self-signed certificate the bot makes once (`data/admin-tls.crt`), so the browser warns the first time; the login page offers the certificate for download so it can be trusted. Five wrong passwords lock an address out for five minutes. More options (own certificate, reverse proxy, extra host names) are in [`.env.example`](.env.example). On Windows, allow the port in the firewall if the page should be reachable from other machines.
+
+### Icon / bot avatar
+
+The project icon is [`assets/icon.png`](assets/icon.png) (transparent background); the administration page uses the same d20 as its favicon and logo. To use it as the bot's avatar, open the [Discord Developer Portal](https://discord.com/developers/applications), select the application, and upload it under **General Information → App Icon** and under **Bot → Icon** (the avatar shown in your servers).
 
 ## Configuration
 

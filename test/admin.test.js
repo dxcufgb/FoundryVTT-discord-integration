@@ -46,7 +46,7 @@ function fakeClient() {
 }
 
 /** A running admin page on 127.0.0.1 (plain HTTP) with a fake bot behind it. */
-async function startPage({ summaries = null } = {}) {
+async function startPage({ summaries = null, trustProxy = [] } = {}) {
   const dir = tmpDir("fvtt-admin-");
   const file = adminFile(dir);
   saveAdminSettings(file, { passwordHash: await hashPassword(PASSWORD) });
@@ -57,7 +57,7 @@ async function startPage({ summaries = null } = {}) {
   const config = buildConfig({ DISCORD_TOKEN: TOKEN, DISCORD_CLIENT_ID: "1", BOT_DATA_DIR: dir, FOUNDRY_DATA_PATH: summaries ?? dir });
   const client = fakeClient();
   const ctx = { state, config, client, log: quietLog, now: () => new Date("2026-10-19T23:00:00Z"), worldTitle: (id) => (id === "my-world" ? "My World" : null) };
-  const page = createAdmin({ file, settings: loadAdminSettings(file), ctx, version: "1.5.0" });
+  const page = createAdmin({ file, settings: loadAdminSettings(file), ctx, version: "1.5.0", trustProxy });
   const server = createAdminServer(page, null, { log: quietLog });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -183,6 +183,18 @@ test("parallel wrong logins cannot get past the lockout", async () => {
     assert.equal(statuses.filter((s) => s === 401).length, 5);
     assert.equal(statuses.filter((s) => s === 429).length, 7);
     assert.equal((await t.login()).status, 429, "still locked");
+  } finally {
+    await t.close();
+  }
+});
+
+test("a flood of failed logins from many addresses pauses wrong passwords, never the right one", async () => {
+  const t = await startPage({ trustProxy: ["loopback"] });
+  const from = (ip) => ({ headers: { "X-Forwarded-For": ip } });
+  try {
+    for (let i = 0; i < 50; i++) await t.call("POST", "login", { password: "wrong password" }, from(`203.0.113.${i}`));
+    assert.equal((await t.call("POST", "login", { password: "wrong password" }, from("198.51.100.1"))).status, 429);
+    assert.equal((await t.call("POST", "login", { password: PASSWORD }, from("198.51.100.2"))).status, 200, "the administrator is not locked out");
   } finally {
     await t.close();
   }

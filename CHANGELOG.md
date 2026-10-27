@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Security
+
+- **A flood of failed logins can no longer lock the administrator out of the administration page.** After 50 failed logins from any addresses within 15 minutes the page refused every login, including the right password, so anyone who could reach the port could keep the real administrator out. Wrong passwords are still refused during such a flood and an address is still locked out for five minutes after five wrong passwords, but the right password now always gets in.
+- **Manifest lookups stay off the local network.** When foundryvtt.com does not know an installed package, the bot fetches the `manifest` URL from the package's `module.json`. A package could point that at a local, private or cloud-metadata address (`localhost`, `10.x`, `192.168.x`, `169.254.169.254`, …); such URLs are now skipped.
+- **World ids are checked before they become a path.** Looking up a world's title refuses an id that is `.`, `..` or contains anything but letters, digits, `.`, `-` and `_`, so an id can never point outside `Data/worlds`.
+- **The LevelDB reader refuses absurd block sizes.** A damaged or crafted world database that declares a compressed block of more than 128 MB is reported as unreadable instead of the bot trying to allocate that memory.
+
+### Added
+
+- **The administration page has a logo and a favicon.** The d20 icon is shown at the top left on every view, the login screen included, on the login card and as the browser tab's icon. The same icon is in `assets/icon.png`; the README explains how to use it as the bot's avatar.
+
 ## [1.6.2] - 2026-10-26
 
 ### Security

@@ -46,8 +46,11 @@ export function readVarint(buf, offset) {
 // --- Snappy -------------------------------------------------------------------------
 
 /** Decompress a Snappy block (the raw format LevelDB uses, no framing). */
+const MAX_SNAPPY_BYTES = 128 * 1024 * 1024;
+
 export function decodeSnappy(src) {
   let [length, pos] = readVarint(src, 0);
+  if (length > MAX_SNAPPY_BYTES) throw new Error("snappy: declared length too large");
   const out = Buffer.allocUnsafe(length);
   let op = 0;
   while (pos < src.length) {

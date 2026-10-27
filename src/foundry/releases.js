@@ -11,6 +11,24 @@
 
 import { compareVersions } from "./updates.js";
 
+/**
+ * A manifest URL the bot is willing to fetch: http(s) to a non-internal host. Installed modules declare this URL,
+ * so a malicious module could otherwise point the bot at a private, loopback or cloud-metadata address (SSRF).
+ * (A public name that resolves to a private address is not caught here.)
+ */
+export function isPublicHttpUrl(value) {
+  let u;
+  try { u = new URL(value); } catch { return false; }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
+  if (/^127\./.test(host) || host === "::1" || host === "0.0.0.0" || host === "::") return false;
+  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  if (/^(fc|fd)[0-9a-f]{2}:/i.test(host) || /^fe80:/i.test(host)) return false;
+  return true;
+}
+
 export const DEFAULT_WEBSITE_URL = "https://foundryvtt.com";
 export const CHANNELS = Object.freeze(["stable", "testing", "development", "prototype"]);
 
@@ -369,7 +387,7 @@ export class FoundryWebsite {
   async getPackageInfo(pkg) {
     const fromSite = await this.getPackage(pkg.id);
     if (fromSite && !fromSite.error && fromSite.versions?.length) return fromSite;
-    if (pkg.manifest && /^https?:\/\//i.test(pkg.manifest)) {
+    if (pkg.manifest && isPublicHttpUrl(pkg.manifest)) {
       const res = await this.get(pkg.manifest);
       if (res.ok) {
         const info = parseManifestAsPackage(res.json, pkg.id);
