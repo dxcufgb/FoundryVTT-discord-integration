@@ -62,7 +62,8 @@ export function compareSemver(a, b) {
 export function parseChecksums(text) {
   const sums = new Map();
   for (const line of String(text).replace(/^﻿/, "").split(/\r?\n/)) {
-    const m = /^([0-9a-fA-F]{64}) [ *]?(.+?)\s*$/.exec(line.trim());
+    // The line is trimmed, so "(.+)$" needs no trailing "\s*" (which backtracks polynomially on long runs of spaces).
+    const m = /^([0-9a-fA-F]{64}) [ *]?(.+)$/.exec(line.trim());
     if (m) sums.set(path.posix.basename(m[2].replace(/\\/g, "/")), m[1].toLowerCase());
   }
   return sums;
