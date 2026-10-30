@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **Opening a world only pings the players when a session is about to start.** The "world is ready to join" message, which tags every player of the campaigns bound to the world, is now sent only when the campaign's next session starts within 30 minutes or is already under way. Opening the world at any other time (preparation, testing) no longer pings anyone; the plain "World started" announcement is unchanged.
+
 ## [1.6.3] - 2026-10-27
 
 ### Security

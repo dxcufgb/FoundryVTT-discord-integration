@@ -12,6 +12,9 @@ export const MAX_CAMPAIGN_NAME = 60;
 /** Minutes before a session at which the bot checks that the world is up. */
 export const DEFAULT_REMINDER_MINUTES = 15;
 
+/** The world-ready message (which tags the players) goes out only when a session starts within this many minutes, or has already started. */
+export const WORLD_READY_WINDOW_MINUTES = 30;
+
 /** How long after its start a session still counts as "the current session" (for /session show and the world-ready message). */
 export const SESSION_LINGER_MS = 4 * 3600_000;
 

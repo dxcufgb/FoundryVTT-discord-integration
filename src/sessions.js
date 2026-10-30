@@ -7,14 +7,15 @@
 //      which tags the DM. Sent once per planned session time; a failed Discord
 //      delivery is retried on the next tick.
 //   2. When the monitor reports a world start, emit for every campaign bound
-//      to that world (in every server)
+//      to that world (in every server) whose next session starts within
+//      WORLD_READY_WINDOW_MINUTES (30) or is already under way
 //        { type: "worldReady", guildId, channelId, campaign, status, session }
-//      which tags the players.
+//      which tags the players. Opening the world at any other time pings nobody.
 //
 // Sessions that are more than SESSION_LINGER_MS in the past are moved to
 // `lastSession` so the campaign is ready for the next one.
 
-import { DEFAULT_REMINDER_MINUTES, isCurrentSession } from "./campaigns.js";
+import { DEFAULT_REMINDER_MINUTES, isCurrentSession, WORLD_READY_WINDOW_MINUTES } from "./campaigns.js";
 
 export class SessionScheduler {
   /**
@@ -117,7 +118,9 @@ export class SessionScheduler {
     let sent = 0;
     const now = this.now();
     for (const { guildId, campaign } of this.state.campaignsForWorld(event.world)) {
-      const session = isCurrentSession(campaign.nextSession, now) ? campaign.nextSession : null;
+      const session = campaign.nextSession;
+      if (!isCurrentSession(session, now)) continue;
+      if (now.getTime() < new Date(session.at).getTime() - WORLD_READY_WINDOW_MINUTES * 60_000) continue; // session too far off: no pings
       if (await this.send({ type: "worldReady", guildId, channelId: campaign.channel ?? null, campaign, status: event.status ?? {}, session })) sent += 1;
     }
     return sent;

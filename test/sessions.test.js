@@ -128,25 +128,40 @@ test("campaign channel override and several servers", async () => {
   assert.deepEqual(t.events.map((e) => [e.guildId, e.channelId]), [["g1", "camp-chan"], ["g2", null]]);
 });
 
-test("a world start tags the players of every campaign bound to that world", async () => {
+test("a world start tags the players of every campaign bound to that world with a session within 30 minutes", async () => {
   const t = setup();
   t.state.saveCampaign("g2", createCampaign({ name: "Same world, other server", world: "lost-mines", dm: "dm2", players: ["q1"] }, { now: t.clock.now }));
   t.state.saveCampaign("g1", createCampaign({ name: "Other", world: "other", dm: "dm3" }, { now: t.clock.now }));
+  t.state.saveCampaign("g3", createCampaign({ name: "Later", world: "lost-mines", dm: "dm4", players: ["r1"] }, { now: t.clock.now }));
   t.plan("2026-03-01T19:00:00Z");
+  t.plan("2026-03-01T19:00:00Z", "g2", "same-world-other-server");
+  t.plan("2026-03-02T19:00:00Z", "g3", "later");
 
   assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStopped", world: "lost-mines" }), 0);
   assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "unbound", status: {} }), 0);
   assert.deepEqual(t.types(), []);
 
+  t.clock.set("2026-03-01T18:29:00Z");
+  assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 0, "31 minutes before the session: nobody is pinged");
+  assert.deepEqual(t.types(), []);
+
   t.clock.set("2026-03-01T18:40:00Z");
   assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", previousWorld: null, status: { system: "dnd5e" } }), 2);
   assert.deepEqual(t.types(), ["worldReady", "worldReady"]);
-  assert.deepEqual(t.events.map((e) => e.guildId), ["g1", "g2"]);
+  assert.deepEqual(t.events.map((e) => [e.guildId, e.campaign.id]), [["g1", "lost-mines"], ["g2", "same-world-other-server"]], "the campaign whose session is tomorrow is left out");
   assert.deepEqual(t.events[0].campaign.players, ["p1", "p2"]);
   assert.equal(t.events[0].session.at, "2026-03-01T19:00:00.000Z", "the planned session is included");
-  assert.equal(t.events[1].session, null);
   assert.equal(t.events[0].status.system, "dnd5e");
+
+  t.clock.set("2026-03-01T19:20:00Z");
+  assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 2, "a session already under way still counts");
 
   t.world.failDelivery = true;
   assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 0, "delivery failures are counted, not thrown");
+});
+
+test("a world start without a planned session pings nobody", async () => {
+  const t = setup();
+  assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 0);
+  assert.deepEqual(t.types(), []);
 });

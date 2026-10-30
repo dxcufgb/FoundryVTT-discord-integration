@@ -17,7 +17,7 @@ Where each **message type** is posted. Types:
 | `world` | World started, switched or shut down. |
 | `updates` | Foundry, system and module updates (and installs/removals). |
 | `restart` | Restart window opened; Foundry did not come back after the window. |
-| `session` | Campaign messages: the world is ready to join (tags the players); the world is not up 15 minutes before a planned session (tags the DM). A campaign can override this with its own channel. |
+| `session` | Campaign messages: the world is ready to join (tags the players; sent only when the campaign has a session starting within 30 minutes or already under way); the world is not up 15 minutes before a planned session (tags the DM). A campaign can override this with its own channel. |
 
 - `/channel set type:<type> [channel:#channel]` — post that type in the channel (defaults to the channel you are in). Text channels, announcement channels and threads are allowed.
 - `/channel clear type:<type>` — stop posting that type (it falls back to `default` if set).
