@@ -13,177 +13,35 @@ A small Discord bot that watches a [Foundry VTT](https://foundryvtt.com) **v13**
 
 **Foundry VTT:** v13 · **Node.js:** 20 or newer · **Discord:** slash commands, no message content access needed
 
-## What it does
-
-| Message type | Posted when |
-| --- | --- |
-| **status** | Foundry stops answering (🔴 *Foundry is down*) and when it answers again (🟢 *Foundry is back up*, with the downtime). Optionally pings a role on unexpected downtime. |
-| **restart** | A **restart window** is set (for example 04:00–04:15 every day). Downtime inside the window is reported calmly as a restart. If Foundry is still down when the window (plus a grace period) has passed, the bot raises ⚠️ *Foundry did not come back*. Optionally announces when the window opens. |
-| **world** | A world is launched (🌍 *World started*, with the world's title and game system), switched, or returned to the setup screen. |
-| **updates** | Foundry itself, an installed **system** or an installed **module** changes version (also newly installed and removed packages, if wanted). **Every update is announced exactly once**, even across bot restarts. |
-| **session** | A **campaign**'s world comes up (🎲 *The world is ready to join*, tagging the campaign's players), and 15 minutes before a planned session when that world is *not* running (⏰ tagging the DM). |
-
-On request (slash commands, nothing is posted automatically) the bot also looks **outward and inward**:
-
-- `/updates available` asks foundryvtt.com which newer versions exist and shows only those that fit the **installed Foundry major version** (v13 today): current version → latest compatible version, per system and module. Packages that have nothing new for your Foundry are left out. For Foundry itself it shows both a newer build of the installed major version *and* a newer major version when one is out.
-- `/updates compatibility` answers "could I upgrade to the next major Foundry?" by checking every installed system and module against that version: ready, needs an update first, untested, not ready, unknown.
-- `/modules unused` lists the installed modules that **no world on the server has enabled**, read straight from each world's settings database; `/modules usage` shows the active-module count per world or where one module is used.
-
-After a played session, the bot can also post a short **session summary** to the campaign's channel; see [Session summaries](#session-summaries).
-
-Each message type can go to its own channel, several types can share a channel, and a **default** channel catches anything without its own. The bot can sit in more than one Discord server; channels are configured per server.
-
-**Campaigns** bind Discord users to worlds: each campaign belongs to one Discord server, is connected to exactly one Foundry world and has exactly one **DM**; any number of server members can be its players, and a member can be in any number of campaigns. The DM (or an administrator) plans the next session with a date and time, or by pasting a link to a Discord scheduled event, whose start time is taken over.
-
-Everything is configured from Discord with slash commands. Configuration commands are only available to members with the **Administrator** permission; `/status`, `/updates list|available|compatibility`, `/modules`, `/campaign list|show|join|leave` and `/session show` can be used by everyone.
-
-## How it works
-
-- Every 30 seconds (configurable) the bot calls Foundry's status endpoint `GET /api/status` on `FOUNDRY_URL` (default `http://localhost:30000`). That endpoint needs no login and works while Foundry shows the setup screen, so it tells the bot whether Foundry is up, which version it runs and which world is active.
-- Foundry counts as *down* after two failed checks in a row (configurable), so a single slow answer does not cause an alert.
-- Every five minutes, and whenever Foundry comes back up, the bot reads the `system.json` / `module.json` manifests under Foundry's user data folder (`FOUNDRY_DATA_PATH`) and compares versions with what it saw last time. The first scan only records what is installed; nothing is announced until something changes.
-- `/updates available` and `/updates compatibility` fetch each installed package's record from the foundryvtt.com package API (`/_api/packages/get?id=…`, which lists every published version with its compatibility declaration), falling back to the package's own `manifest` URL, and read the release list at `https://foundryvtt.com/releases/`. Answers are cached for 30 minutes. The compatibility verdicts are only as good as what package authors declare in their manifests.
-- `/modules unused` reads the active-module list (`core.moduleConfiguration`) from every world's settings database (`Data/worlds/<id>/data/settings`, LevelDB in Foundry v11+; the older NeDB `settings.db` is understood too) with a small read-only reader of the on-disk files, so it works while Foundry is running and without any native dependency.
-- After every poll the bot looks at the campaigns' planned sessions. 15 minutes before one, if Foundry is down, on the setup screen or running another world, it tags the campaign's DM once. When the monitor sees a world start, every campaign bound to that world (in every server) gets a message tagging its players.
-- Settings, campaigns and the list of already announced updates live in `data/state.json` next to the bot. Writes are atomic, so a crash cannot corrupt it.
-
 ## Installation
 
-Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**. In short, after creating a Discord application and bot at <https://discord.com/developers/applications> (you need its **Application ID** and **bot token**; also turn on **Server Members Intent** under *Bot → Privileged Gateway Intents* so update notices reach every server Administrator, otherwise the bot logs a warning and sends them to server owners only):
+You need a Discord application and bot first; see [Discord Application Setup](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Discord-Application-Setup).
 
-### Install on Linux
-
-On the machine that runs Foundry:
+On Linux, on the machine that runs Foundry:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/dxcufgb/install/main/install.sh | sudo bash -s foundryvtt-discord-integration
 ```
 
-or download `foundryvtt-discord-integration-linux.tar.gz` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest), then:
+On Windows, run `foundryvtt-discord-integration-setup.exe` from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest).
 
-```
-tar xzf foundryvtt-discord-integration-linux.tar.gz
-cd foundryvtt-discord-integration-X.Y.Z
-sudo ./install.sh
-```
+Installer options, the manual download and automatic updates: [Install on Linux](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Install-on-Linux) and [Install on Windows](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Install-on-Windows) in the wiki. Running from source: [Configuration Reference](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Configuration-Reference#running-from-source).
 
-(The older one-liner `curl -fsSL https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest/download/install.sh | sudo bash` still works too.)
+## Documentation
 
-The guided installer checks for Node.js, finds your running Foundry server to suggest its user, port and data folder, asks for the Discord token and IDs, and installs a systemd service. Options (`sudo ./install.sh --help` lists them all; with the one-liner put them after the slug, e.g. `… | sudo bash -s foundryvtt-discord-integration --check-update`):
+The full guide is in the [wiki](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki):
 
-| Option | Meaning |
-| --- | --- |
-| (none) | install or upgrade in place, interactive (asks for what it needs) |
-| `--yes`, `-y` | non-interactive: no questions; missing required settings → clear error |
-| `--auto-update` / `--no-auto-update` | turn automatic updates on / off as part of this install |
-| `--enable-auto-update` / `--disable-auto-update` | turn them on / off on an existing install, nothing else |
-| `--check-update` | only check: exit 0 = up to date, 10 = newer release available, other = error |
-| `--update-now` | install the latest release now (same path as the daily updater) |
-| `--uninstall` [`--purge`] | remove (keep / also delete settings and data) |
-| `--help` | usage listing exactly these first, then the bot's own options |
-
-The bot's own options: `--token`, `--client-id`, `--guild-id`, `--data-path`, `--app-path`, `--url`, `--user`, `--dir`, `--timezone`, `--interval`, `--no-start`, `--version` and `--non-interactive` (same as `--yes`); see [docs/INSTALL.md](docs/INSTALL.md#2-install-on-linux-guided-installer).
-
-### Install on Windows
-
-Download `foundryvtt-discord-integration-setup.exe` (the same file as `foundryvtt-discord-integration-<version>-setup.exe`) from the [latest release](https://github.com/dxcufgb/FoundryVTT-discord-integration/releases/latest) and run it. The wizard installs Node.js if needed, asks the same questions and registers a Scheduled Task that runs the bot at boot. Silent installs take the answers as `/DiscordToken=… /ClientId=…` parameters.
-
-### Automatic updates
-
-Opt-in, off by default: both installers offer to check GitHub once a day and install a newer release the same way as a manual upgrade, keeping `.env` and the data folder. Linux and Windows zip installs roll back if the update fails; a Windows `setup.exe` update only undoes its own changes if setup itself fails. Turn it on or off later with `sudo …/install.sh --enable-auto-update` / `--disable-auto-update` or `deploy\windows\auto-update.ps1 -Enable` / `-Disable`; see [Automatic updates](docs/INSTALL.md#automatic-updates).
-
-### After installing
-
-In Discord, run `/channel set type:default` in the channel where messages should go, and fine-tune with the commands below.
-
-Running from source: `npm ci`, copy `.env.example` to `.env` and fill it in, `npm start`.
-
-## Commands
-
-| Command | Who | What |
-| --- | --- | --- |
-| `/status` | everyone | Is Foundry up, which version and world, users online, next restart window. |
-| `/channel set type channel` | admins | Post one kind of message (`default`, `status`, `world`, `updates`, `restart`, `session`) in a channel. |
-| `/channel clear type` · `/channel list` | admins | Stop posting a kind of message / show the current routing. |
-| `/channel mention role` | admins | Role to ping when Foundry goes down unexpectedly. |
-| `/monitor enable|disable what` | admins | Turn `status`, `world`, `updates` or `all` monitoring on or off. |
-| `/monitor show` · `/monitor check` | admins | Show monitor settings / check Foundry right now. |
-| `/restart-window set start duration [days] [timezone] [grace] [announce]` | admins | Expected restart, e.g. `start:04:00 duration:15 days:daily`. |
-| `/restart-window show` · `/restart-window clear` | admins | Show the window and its next opening / remove it. |
-| `/updates list [type]` | everyone | Installed systems and modules with versions. |
-| `/updates available [type]` | everyone | Newer Foundry builds (same major version and the next major version) and the newest system/module versions compatible with the installed Foundry. Only packages with an update are shown. |
-| `/updates compatibility [generation]` | everyone | Would the installed systems and modules work on the next major Foundry version (or the one given)? |
-| `/updates check` · `/updates settings` · `/updates reset` | admins | Scan now / choose what counts as an update / take the current versions as a fresh starting point. |
-| `/modules unused` | everyone | Installed modules that are not enabled in any world. |
-| `/modules usage [module]` | everyone | Active modules per world, or the worlds that use one module. |
-| `/campaign create name world dm [channel]` | admins | Create a campaign: one Foundry world, one DM. `world` and `campaign` options autocomplete. |
-| `/campaign edit` · `/campaign delete` | admins | Change name, world, DM or channel / remove a campaign. |
-| `/campaign add-player` · `/campaign remove-player` | DM or admins | Manage the players of a campaign. |
-| `/campaign join` · `/campaign leave` · `/campaign list` · `/campaign show` | everyone | Join or leave a campaign; see campaigns, their DM, players and next session. |
-| `/session set campaign when [timezone]` | DM or admins | Next session at a date and time, e.g. `when:2026-10-12 19:00` or `tomorrow 19:00`. |
-| `/session event campaign link` | DM or admins | Take the next session's time from a Discord scheduled event. |
-| `/session clear` · `/session show [campaign]` | DM or admins · everyone | Remove the planned session / show the next session(s). |
-| `/test-message type` | admins | Post a test message to see where a type ends up. |
-
-Details for every command and option: **[docs/COMMANDS.md](docs/COMMANDS.md)**.
-
-## Session summaries
-
-When a world goes back to the setup screen, the bot posts that world's **session summary** to the channel of every campaign bound to the world (in every server). The summaries are written by the Foundry module **dxcufgbs-session-summary** ([FoundryVTT-session-summary](https://github.com/dxcufgb/FoundryVTT-session-summary)) when the GM ends a session: kills, dice, scenes, achievements, as ready-to-post Discord text.
-
-- **Needs the module.** The bot reads what the module exported into Foundry's Data folder (`Data/session-summaries/`, or `SESSION_SUMMARY_DIR`); it never writes there. Without the module, without `FOUNDRY_DATA_PATH`, or with broken files, nothing is posted and **the bot works exactly as before**.
-- **What is posted:** every summary of the stopped world that ended within the last 24 hours, is not a mid-session "Export now", and was not posted to that channel before; oldest first. Each summary is posted once per channel; a failed post is tried again the next time the world stops.
-- **Where:** only to a campaign's own channel (`/campaign create … channel:` or `/campaign edit`). A world without a campaign, or a campaign without a channel, gets nothing: there is no fallback to the server's default or session channel.
-- It also works with world announcements turned off in `/monitor`, and when the GM goes back to setup and straight into another world between two checks. On the [administration page](#administration-page) it can be turned off, the 24 hours changed, recent summaries checked and a world's summaries posted by hand.
-
-## Administration page
-
-An optional, password-protected web page, like the admin pages of the Foundry world backup and the release proxy, shows the bot's state and changes its settings without Discord:
-
-- **Overview:** Foundry up/down, the active world, Foundry's version, the Discord connection and the configuration from `.env` (never the token).
-- **Monitoring:** the announcement switches of `/monitor` and the update tracking of `/updates settings`, and the restart window.
-- **Servers and campaigns:** each server's channel routing, mention role and GM role, and each campaign's channel and voice channel, chosen from dropdowns (the same settings as `/channel`, `/gm-role` and `/campaign edit`; saving warns when the bot lacks a permission in the chosen channel), plus each campaign's world, players and next session.
-- **Session summaries:** on/off, the age limit, the summary folder, the recent summaries and where they were posted, and *Post now*.
-- **Admin password.**
-
-It is off by default. To turn it on, set `ADMIN_PORT` (for example `ADMIN_PORT=8486`) in `.env`, set a password and restart the bot:
-
-```
-cd /opt/foundryvtt-discord-integration && sudo node scripts/admin-password.js   # Linux installation
-npm run admin-password                                                          # from source / Windows (as administrator)
-sudo systemctl restart foundryvtt-discord-bot
-```
-
-Then open `https://<this machine>:8486/`. The page uses HTTPS with a self-signed certificate the bot makes once (`data/admin-tls.crt`), so the browser warns the first time; the login page offers the certificate for download so it can be trusted. Five wrong passwords lock an address out for five minutes. More options (own certificate, reverse proxy, extra host names) are in [`.env.example`](.env.example). On Windows, allow the port in the firewall if the page should be reachable from other machines.
-
-### Icon / bot avatar
-
-The project icon is [`assets/icon.png`](assets/icon.png) (transparent background); the administration page uses the same d20 as its favicon and logo. To use it as the bot's avatar, open the [Discord Developer Portal](https://discord.com/developers/applications), select the application, and upload it under **General Information → App Icon** and under **Bot → Icon** (the avatar shown in your servers).
-
-## Configuration
-
-All settings are environment variables, read from `.env` (see [`.env.example`](.env.example)):
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `DISCORD_TOKEN` | – | Bot token. **Required.** |
-| `DISCORD_CLIENT_ID` | – | Application ID, used to register the slash commands. **Required.** |
-| `DISCORD_GUILD_ID` | – | Register commands only in this server (instant). Empty = global (up to an hour). |
-| `FOUNDRY_URL` | `http://localhost:30000` | Where the bot reaches Foundry. |
-| `FOUNDRY_DATA_PATH` | – | Foundry's user data folder (contains `Config/`, `Data/`, `Logs/`). Needed for system/module update tracking and world titles. |
-| `FOUNDRY_APP_PATH` | – | Foundry's install folder; lets the bot read the Foundry version while Foundry is down. |
-| `FOUNDRY_WEBSITE_URL` | `https://foundryvtt.com` | Where `/updates available` and `/updates compatibility` look up packages and releases. Only change it for a mirror. |
-| `BOT_DATA_DIR` | `./data` | Where `state.json` is kept. |
-| `POLL_INTERVAL_SECONDS` | `30` | How often Foundry is checked (minimum 5). |
-| `DOWN_AFTER_FAILURES` | `2` | Failed checks in a row before Foundry counts as down. |
-| `TIMEZONE` | `UTC` | Default timezone for restart windows (IANA name, e.g. `Europe/Stockholm`). |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
-| `SESSION_SUMMARY_DIR` | – | Where the dxcufgbs-session-summary module writes its summaries, if not `session-summaries` in Foundry's Data folder. Absolute, or relative to the Data folder. |
-| `ADMIN_PORT` | – | Port of the [administration page](#administration-page). Empty = off. Also needs a password (`npm run admin-password`). |
-| `ADMIN_HOST`, `ADMIN_HOSTS`, `ADMIN_TLS`, `ADMIN_TLS_CERT`, `ADMIN_TLS_KEY`, `ADMIN_TRUST_PROXY` | | Listening address, extra host names, HTTPS and reverse-proxy options of the page; see [`.env.example`](.env.example). |
-| `UPDATE_NOTIFY` | `admins` | Who gets a direct message with the changelog after the bot was updated: `admins` (owner and every Administrator of each server; needs the Server Members Intent, otherwise the bot warns and messages owners only), `owner` or `off`. |
-
-`npm run check-config` validates `.env`, probes Foundry, counts the installed packages and worlds, tells how many modules no world uses, whether the session summary folder exists and whether the administration page is set up, without touching Discord. The bot looks for `.env` next to `package.json`; `--env <file>` or `FOUNDRY_DISCORD_ENV_FILE` point it elsewhere (the Windows installer keeps it under `%ProgramData%\FoundryVTT Discord integration`).
+- [Discord Application Setup](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Discord-Application-Setup): the application, bot token and intent
+- [Install on Linux](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Install-on-Linux) and [Install on Windows](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Install-on-Windows): installers and their options
+- [Messages and Channels](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Messages-and-Channels): what is posted, where, and restart windows
+- [Commands](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Commands): every slash command and who may use it
+- [Campaigns and Sessions](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Campaigns-and-Sessions): campaigns, players, DMs and session reminders
+- [Session Summaries](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Session-Summaries): posting the summaries of the [Session Summary module](https://github.com/dxcufgb/FoundryVTT-session-summary)
+- [Package Updates and Modules](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Package-Updates-and-Modules): update announcements, compatibility, unused modules
+- [Admin Page](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Admin-Page): the optional web page, and the icon / bot avatar
+- [Automatic Updates](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Automatic-Updates): opt-in daily updates and the changelog message
+- [Configuration Reference](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/Configuration-Reference): every `.env` setting
+- [How It Works](https://github.com/dxcufgb/FoundryVTT-discord-integration/wiki/How-It-Works): polling, update scans and the state file
 
 ## Development
 
