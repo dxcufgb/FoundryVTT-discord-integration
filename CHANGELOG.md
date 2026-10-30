@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-10-30
+
 ### Changed
 
 - **Opening a world only pings the players when a session is about to start.** The "world is ready to join" message, which tags every player of the campaigns bound to the world, is now sent only when the campaign's next session starts within 30 minutes or is already under way. Opening the world at any other time (preparation, testing) no longer pings anyone; the plain "World started" announcement is unchanged.
@@ -173,7 +175,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.4...HEAD
+[1.6.4]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...v1.6.1
