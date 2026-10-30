@@ -387,6 +387,15 @@ test("HTTPS: a self-signed certificate is made once in the data folder, plain HT
     const plain = await fetch(`http://127.0.0.1:${port}/x`, { redirect: "manual" });
     assert.equal(plain.status, 301);
     assert.equal(plain.headers.get("location"), `https://127.0.0.1:${port}/_admin/`);
+    // An unknown Host header is not echoed into a redirect (open redirect).
+    const foreign = await new Promise((resolve, reject) => {
+      http.get({ host: "127.0.0.1", port, path: "/", headers: { Host: "evil.example" } }, (res) => {
+        res.resume();
+        resolve({ status: res.statusCode, location: res.headers.location });
+      }).on("error", reject);
+    });
+    assert.equal(foreign.status, 400);
+    assert.equal(foreign.location, undefined);
     const cert = await new Promise((resolve, reject) => {
       https.get({ host: "127.0.0.1", port, path: "/_admin/certificate.crt", ca: first.cert }, (res) => {
         let body = "";

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Security
+
+- **The administration page's plain-HTTP redirect no longer trusts the Host header.** A plain-HTTP request on the HTTPS port is redirected to `https://` only for a host name the page accepts anyway (`ADMIN_HOSTS`, `localhost`, this machine's names and addresses); any other name gets "400 use https://" instead of a redirect to that name.
+- **A crafted checksum file can no longer stall the auto-updater.** Reading `SHA256SUMS.txt` took seconds per line on a line with a long run of spaces; it is now linear.
+- `npm run check-config` no longer keeps its "password set / not set" note in a variable named like a password, so code scanning does not report it as a logged secret (the hash was never printed).
+
 ## [1.6.4] - 2026-10-30
 
 ### Changed

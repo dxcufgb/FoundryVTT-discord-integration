@@ -76,7 +76,8 @@ export function createAdminServer(page, tls, { log = console } = {}) {
 
   const secure = https.createServer({ cert: tls.cert, key: tls.key, minVersion: "TLSv1.2" }, route(selfSignedPem(tls.cert) ?? undefined));
   const redirect = http.createServer((req, res) => {
-    const host = /^[A-Za-z0-9.:[\]-]+$/.test(req.headers.host || "") ? req.headers.host : null;
+    // Only to a host name the page accepts anyway (ADMIN_HOSTS, this machine's names): never an open redirect.
+    const host = /^[A-Za-z0-9.:[\]-]+$/.test(req.headers.host || "") ? page.knownHost(req.headers.host) : null;
     if (!host) return plain(res, 400, "use https://");
     return plain(res, 301, "use https://", { Location: `https://${host}/_admin/` });
   });

@@ -55,7 +55,8 @@ else {
 // The administration page.
 if (!config.admin) console.log("Admin page:         off (ADMIN_PORT is not set)");
 else {
-  let password = "not set (npm run admin-password)";
-  try { if (loadAdminSettings(adminFile(config.botDataDir)).passwordHash) password = "set"; } catch (err) { password = `unreadable: ${err.message}`; }
-  console.log(`Admin page:         port ${config.admin.port} on ${config.admin.host}, ${config.admin.tls ? "HTTPS" : "plain HTTP"}, password ${password}`);
+  // Only whether a password is set; the hash is never printed.
+  let login = "not set (npm run admin-password)";
+  try { if (loadAdminSettings(adminFile(config.botDataDir)).passwordHash) login = "set"; } catch (err) { login = `unreadable: ${err.message}`; }
+  console.log(`Admin page:         port ${config.admin.port} on ${config.admin.host}, ${config.admin.tls ? "HTTPS" : "plain HTTP"}, password ${login}`);
 }

@@ -49,6 +49,13 @@ test("parseChecksums reads sha256sum and Get-FileHash output, with directories, 
   assert.equal(sums.size, 2);
 });
 
+test("parseChecksums stays fast on a line with a long run of spaces", () => {
+  const started = Date.now();
+  const sums = parseChecksums(`${"a".repeat(64)}  x${" ".repeat(50_000)}y\n`);
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(sums.size, 1);
+});
+
 /** Build a GitHub release fixture with API and public download URLs for the named assets. */
 const release = (version, names) => ({
   tag_name: `v${version}`,
