@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-10-30
+
 ### Security
 
 - **The administration page's plain-HTTP redirect no longer trusts the Host header.** A plain-HTTP request on the HTTPS port is redirected to `https://` only for a host name the page accepts anyway (`ADMIN_HOSTS`, `localhost`, this machine's names and addresses); any other name gets "400 use https://" instead of a redirect to that name.
@@ -181,7 +183,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.4...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.5...HEAD
+[1.6.5]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.4...v1.6.5
 [1.6.4]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...v1.6.2
