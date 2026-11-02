@@ -479,6 +479,22 @@ export function createAdmin({ file, settings, ctx, version = null, extraHosts = 
   return {
     handles: (pathname) => pathname === PREFIX || pathname.startsWith(`${PREFIX}/`),
 
+    // A Host header as "name[:port]" when the name is one the page may be opened with, else null.
+    // The name is taken from the allow-list, not the request, so a redirect built from it cannot point elsewhere.
+    knownHost(value) {
+      let url;
+      try {
+        url = new URL(`http://${value}`);
+      } catch {
+        return null;
+      }
+      const name = url.hostname.toLowerCase();
+      const known = [...hosts, ...machineHosts(now())].find((h) => h === name);
+      if (!known) return null;
+      const port = /^\d{1,5}$/.test(url.port) ? Number.parseInt(url.port, 10) : null;
+      return port ? `${known}:${port}` : known;
+    },
+
     // certificate: the port's self-signed certificate (PEM), offered for download so a browser can trust it.
     async handle(req, res, pathname, { certificate } = {}) {
       if (!settings.passwordHash) return send(res, 404, "not found", { "Content-Type": "text/plain; charset=utf-8" });

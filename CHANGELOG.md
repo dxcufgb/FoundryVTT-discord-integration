@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-10-30
+
+### Security
+
+- **The administration page's plain-HTTP redirect no longer trusts the Host header.** A plain-HTTP request on the HTTPS port is redirected to `https://` only for a host name the page accepts anyway (`ADMIN_HOSTS`, `localhost`, this machine's names and addresses); any other name gets "400 use https://" instead of a redirect to that name.
+- **A crafted checksum file can no longer stall the auto-updater.** Reading `SHA256SUMS.txt` took seconds per line on a line with a long run of spaces; it is now linear.
+- `npm run check-config` no longer keeps its "password set / not set" note in a variable named like a password, so code scanning does not report it as a logged secret (the hash was never printed).
+
+## [1.6.4] - 2026-10-30
+
 ### Changed
 
 - **A world opened early still tells the players when the session is near.** When the campaign's world is already running 30 minutes before a planned session, the "world is ready to join" message (which tags the players) is now sent at that point. Before, a world opened more than 30 minutes ahead never sent it. It goes out once per session, and not again if the world was started within the 30 minutes.
@@ -177,7 +187,9 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.5...HEAD
+[1.6.5]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.4...v1.6.5
+[1.6.4]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.0...v1.6.1
