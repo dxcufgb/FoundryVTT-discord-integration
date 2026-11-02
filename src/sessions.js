@@ -11,6 +11,10 @@
 //      WORLD_READY_WINDOW_MINUTES (30) or is already under way
 //        { type: "worldReady", guildId, channelId, campaign, status, session }
 //      which tags the players. Opening the world at any other time pings nobody.
+//      If the world was opened earlier and is still running when the session is
+//      WORLD_READY_WINDOW_MINUTES away, the same message goes out then instead.
+//      `readySentFor` records the session time it was sent for, so the
+//      30-minute check never repeats a message a world start already sent.
 //
 // Sessions that are more than SESSION_LINGER_MS in the past are moved to
 // `lastSession` so the campaign is ready for the next one.
@@ -79,17 +83,29 @@ export class SessionScheduler {
         c.lastSession = c.nextSession;
         c.nextSession = null;
         c.reminderSentFor = null;
+        c.readySentFor = null;
       });
       this.log.debug(`session of ${campaign.name} (${guildId}) at ${session.at} is over; cleared`);
       return;
     }
 
     if (now.getTime() >= at.getTime()) return; // started: nothing more to check
-    if (now.getTime() < at.getTime() - this.reminderMs) return; // not yet time
-    if (campaign.reminderSentFor === session.at) return; // already handled for this time
 
     const foundry = this.state.data.foundry;
     const worldUp = foundry.status === "up" && foundry.world === campaign.world;
+
+    // The world was opened ahead of time: tell the players when the session is WORLD_READY_WINDOW_MINUTES away.
+    if (worldUp && campaign.readySentFor !== session.at && now.getTime() >= at.getTime() - WORLD_READY_WINDOW_MINUTES * 60_000) {
+      if (await this.send({ type: "worldReady", guildId, channelId: campaign.channel ?? null, campaign, status: { version: foundry.version ?? null }, session })) {
+        this.state.updateCampaign(guildId, campaign.id, (c) => {
+          c.readySentFor = session.at;
+        });
+      }
+    }
+
+    if (now.getTime() < at.getTime() - this.reminderMs) return; // not yet time
+    if (campaign.reminderSentFor === session.at) return; // already handled for this time
+
     if (worldUp) {
       this.state.updateCampaign(guildId, campaign.id, (c) => {
         c.reminderSentFor = session.at;
@@ -121,7 +137,12 @@ export class SessionScheduler {
       const session = campaign.nextSession;
       if (!isCurrentSession(session, now)) continue;
       if (now.getTime() < new Date(session.at).getTime() - WORLD_READY_WINDOW_MINUTES * 60_000) continue; // session too far off: no pings
-      if (await this.send({ type: "worldReady", guildId, channelId: campaign.channel ?? null, campaign, status: event.status ?? {}, session })) sent += 1;
+      if (await this.send({ type: "worldReady", guildId, channelId: campaign.channel ?? null, campaign, status: event.status ?? {}, session })) {
+        sent += 1;
+        this.state.updateCampaign(guildId, campaign.id, (c) => {
+          c.readySentFor = session.at;
+        });
+      }
     }
     return sent;
   }

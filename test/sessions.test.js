@@ -73,8 +73,9 @@ test("no warning when the right world is running; warning when Foundry is down o
   t.plan("2026-03-01T19:00:00Z");
   t.clock.set("2026-03-01T18:46:00Z");
   await t.scheduler.tick();
-  assert.deepEqual(t.types(), []);
+  assert.deepEqual(t.types(), ["worldReady"], "no DM warning; the players are told the world is open");
   assert.equal(t.state.campaign("g1", "lost-mines").reminderSentFor, "2026-03-01T19:00:00.000Z", "checked and found fine");
+  t.events.length = 0;
 
   t.plan("2026-03-01T21:00:00Z");
   t.foundry("down", null);
@@ -87,7 +88,7 @@ test("no warning when the right world is running; warning when Foundry is down o
   t.foundry("up", "other-world");
   t.clock.set("2026-03-01T22:50:00Z");
   await t.scheduler.tick();
-  assert.equal(t.types().length, 2);
+  assert.deepEqual(t.types(), ["sessionWorldNotUp", "sessionWorldNotUp"], "another world running: no world-ready message");
   assert.equal(t.events[1].foundry.world, "other-world");
 });
 
@@ -158,6 +159,64 @@ test("a world start tags the players of every campaign bound to that world with 
 
   t.world.failDelivery = true;
   assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 0, "delivery failures are counted, not thrown");
+});
+
+test("a world opened early tags the players once, 30 minutes before the session", async () => {
+  const t = setup({ start: "2026-03-01T17:00:00Z" });
+  t.plan("2026-03-01T19:00:00Z");
+  t.foundry("up", "lost-mines");
+  assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 0, "opened two hours early: nobody is pinged");
+
+  t.clock.set("2026-03-01T18:29:00Z");
+  await t.scheduler.tick();
+  assert.deepEqual(t.types(), [], "31 minutes before: still nothing");
+
+  t.clock.set("2026-03-01T18:30:00Z");
+  await t.scheduler.tick();
+  assert.deepEqual(t.types(), ["worldReady"]);
+  assert.equal(t.events[0].session.at, "2026-03-01T19:00:00.000Z");
+  assert.deepEqual(t.events[0].campaign.players, ["p1", "p2"]);
+  assert.equal(t.state.campaign("g1", "lost-mines").readySentFor, "2026-03-01T19:00:00.000Z");
+
+  for (const at of ["2026-03-01T18:31:00Z", "2026-03-01T18:45:00Z", "2026-03-01T18:59:00Z"]) {
+    t.clock.set(at);
+    await t.scheduler.tick();
+  }
+  assert.deepEqual(t.types(), ["worldReady"], "sent once; no DM warning either");
+
+  t.clock.set("2026-03-01T23:00:00Z");
+  await t.scheduler.tick();
+  assert.equal(t.state.campaign("g1", "lost-mines").readySentFor, null, "cleared with the session");
+});
+
+test("a world started inside the 30 minutes is not announced a second time by the check", async () => {
+  const t = setup({ start: "2026-03-01T18:40:00Z" });
+  t.plan("2026-03-01T19:00:00Z");
+  t.foundry("up", "lost-mines");
+  assert.equal(await t.scheduler.onMonitorEvent({ type: "worldStarted", world: "lost-mines", status: {} }), 1);
+  await t.scheduler.tick();
+  t.clock.set("2026-03-01T18:50:00Z");
+  await t.scheduler.tick();
+  assert.deepEqual(t.types(), ["worldReady"]);
+});
+
+test("the 30-minute message is retried after a failed delivery, and not sent for the wrong world or after the start", async () => {
+  const t = setup({ start: "2026-03-01T18:30:00Z" });
+  t.plan("2026-03-01T19:00:00Z");
+  t.foundry("up", "lost-mines");
+  t.world.failDelivery = true;
+  await t.scheduler.tick();
+  assert.equal(t.state.campaign("g1", "lost-mines").readySentFor ?? null, null, "not recorded when Discord refused it");
+  t.world.failDelivery = false;
+  t.clock.set("2026-03-01T18:31:00Z");
+  await t.scheduler.tick();
+  assert.deepEqual(t.types(), ["worldReady"]);
+
+  const late = setup({ start: "2026-03-01T19:05:00Z" });
+  late.plan("2026-03-01T19:00:00Z");
+  late.foundry("up", "lost-mines");
+  await late.scheduler.tick();
+  assert.deepEqual(late.types(), [], "session already started: no catch-up ping");
 });
 
 test("a world start without a planned session pings nobody", async () => {
