@@ -12,7 +12,7 @@ export const MAX_CAMPAIGN_NAME = 60;
 /** Minutes before a session at which the bot checks that the world is up. */
 export const DEFAULT_REMINDER_MINUTES = 15;
 
-/** The world-ready message (which tags the players) goes out only when a session starts within this many minutes, or has already started. */
+/** The world-ready message (which tags the players) goes out only when a session starts within this many minutes, or has already started; a world that is already open gets it when the session is this many minutes away. */
 export const WORLD_READY_WINDOW_MINUTES = 30;
 
 /** How long after its start a session still counts as "the current session" (for /session show and the world-ready message). */
@@ -56,6 +56,8 @@ export function createCampaign({ name, world, dm, players = [], channel = null, 
     nextSession: null,
     lastSession: null,
     reminderSentFor: null,
+    // Session time (nextSession.at) the "world is ready to join" message was sent for.
+    readySentFor: null,
   };
 }
 
