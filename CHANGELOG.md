@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **A world opened early still tells the players when the session is near.** When the campaign's world is already running 30 minutes before a planned session, the "world is ready to join" message (which tags the players) is now sent at that point. Before, a world opened more than 30 minutes ahead never sent it. It goes out once per session, and not again if the world was started within the 30 minutes.
+
 ## [1.6.5] - 2026-10-30
 
 ### Security
@@ -13,10 +17,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - `npm run check-config` no longer keeps its "password set / not set" note in a variable named like a password, so code scanning does not report it as a logged secret (the hash was never printed).
 
 ## [1.6.4] - 2026-10-30
-
-### Changed
-
-- **A world opened early still tells the players when the session is near.** When the campaign's world is already running 30 minutes before a planned session, the "world is ready to join" message (which tags the players) is now sent at that point. Before, a world opened more than 30 minutes ahead never sent it. It goes out once per session, and not again if the world was started within the 30 minutes.
 
 ### Changed
 
