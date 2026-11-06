@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { PermissionFlagsBits } from "discord.js";
 import { handleInteraction } from "../src/discord/client.js";
 import { createCampaign, NOT_DM_MESSAGE } from "../src/campaigns.js";
-import { canRunPoll, dateLabel, parseClock, setVotes, tally, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../src/polls.js";
+import { canRunPoll, dateLabel, editableDates, parseClock, setPollDates, setVotes, tally, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../src/polls.js";
 import { fakeInteraction, quietLog, tmpState } from "./helpers.js";
 
 const NOW = new Date("2026-03-01T12:00:00Z");
@@ -90,7 +90,7 @@ test("choosing dates posts a poll that tags the DM and the players", async () =>
   assert.match(env.sent[0].content, /<@dm1> <@p1> <@p2>/);
   assert.deepEqual(env.sent[0].allowedMentions.users, ["dm1", "p1", "p2"]);
   const buttons = env.sent[0].components[1].toJSON().components;
-  assert.deepEqual(buttons.map((b) => b.label), ["Toggle all dates", "Decide date", "Delete poll"]);
+  assert.deepEqual(buttons.map((b) => b.label), ["Toggle all dates", "Decide date", "Edit dates", "Delete poll"]);
   assert.deepEqual(env.state.poll("g1", "m1").dates, ["2026-03-05", "2026-03-06"]);
   assert.match(last(i).content, /Poll posted/);
 });
@@ -140,7 +140,7 @@ test("a full poll fits the button layout, and polls posted with the old menu kee
   await startPoll(env, dates);
   const rows = env.sent[0].components.map((r) => r.toJSON().components);
   assert.equal(rows.length, 5);
-  assert.deepEqual(rows.map((r) => r.length), [5, 5, 5, 5, 3]);
+  assert.deepEqual(rows.map((r) => r.length), [5, 5, 5, 5, 4]);
   assert.equal(upcomingDates(NOW, "Europe/Stockholm").length, 20, "the date picker offers 20 days");
 
   const legacy = component(env, { customId: "poll:vote", userId: "p1", values: [dates[0], dates[3]] });
@@ -374,4 +374,70 @@ test("votes under Object.prototype names are own entries and never reach the pro
   assert.equal(Object.getPrototypeOf(poll.votes), Object.prototype);
   assert.equal(Object.hasOwn(Object.prototype, "2026-03-07"), false);
   assert.equal(typeof {}.hasOwnProperty, "function");
+});
+
+test("Edit dates: the DM, admins and the game master role get a menu with the poll's dates preselected; others are refused", async () => {
+  const env = setup({ gmRole: "role-gm" });
+  await startPoll(env, ["2026-03-05", "2026-03-06"]);
+  for (const opts of [{ userId: "dm1" }, { userId: "x", admin: true }, { userId: "x", roles: ["role-gm"] }]) {
+    const i = component(env, { customId: "poll:edit", ...opts });
+    await handleInteraction(i, env.ctx, { log: quietLog });
+    const menu = last(i).components[0].toJSON().components[0];
+    assert.equal(menu.custom_id, "poll:dates:m1");
+    assert.equal(menu.options.length, 25, "the poll's dates plus upcoming ones, up to the menu limit");
+    assert.equal(menu.max_values, 20);
+    assert.deepEqual(menu.options.filter((o) => o.default).map((o) => o.value), ["2026-03-05", "2026-03-06"]);
+    assert.equal(menu.options[0].value, "2026-03-01");
+  }
+  for (const customId of ["poll:edit", "poll:dates:m1"]) {
+    const player = component(env, { customId, userId: "p1", values: customId === "poll:edit" ? [] : ["2026-03-09"] });
+    await handleInteraction(player, env.ctx, { log: quietLog });
+    assert.match(last(player).content, /Only the campaign's DM, a game master or a server administrator/);
+  }
+  assert.deepEqual(env.state.poll("g1", "m1").dates, ["2026-03-05", "2026-03-06"]);
+});
+
+test("Edit dates: adding and removing dates drops their votes and refreshes the poll message", async () => {
+  const env = setup({ gmRole: "role-gm" });
+  await startPoll(env, ["2026-03-05", "2026-03-06"]);
+  await voteFor(env, "p1", ["2026-03-05", "2026-03-06"]);
+  await voteFor(env, "p2", ["2026-03-05"]);
+  const i = component(env, { customId: "poll:dates:m1", userId: "x", roles: ["role-gm"], values: ["2026-03-06", "2026-03-08", "2026-03-07"] });
+  await handleInteraction(i, env.ctx, { log: quietLog });
+  const poll = env.state.poll("g1", "m1");
+  assert.deepEqual(poll.dates, ["2026-03-06", "2026-03-07", "2026-03-08"]);
+  assert.deepEqual(poll.votes, { p1: ["2026-03-06"] }, "votes for the removed date are dropped");
+  assert.match(last(i).content, /added Sat 7 Mar, Sun 8 Mar; removed Thu 5 Mar\. 2 votes were dropped/);
+  assert.deepEqual(last(i).allowedMentions, { parse: [] });
+  const edit = env.pollMessage.edits.at(-1);
+  assert.deepEqual(edit.components[0].toJSON().components.map((b) => b.label), ["Fri 6 Mar (1)", "Sat 7 Mar (0)", "Sun 8 Mar (0)"]);
+  assert.match(edit.embeds[0].toJSON().description, /Not voted yet: <@dm1> <@p2>/);
+  assert.deepEqual(edit.allowedMentions, { parse: [] });
+});
+
+test("Edit dates: dates that were not offered are ignored, and a poll keeps at least one date", async () => {
+  const env = setup();
+  await startPoll(env, ["2026-03-05"]);
+  const odd = component(env, { customId: "poll:dates:m1", values: ["constructor", "2027-01-01", "2026-03-10"] });
+  await handleInteraction(odd, env.ctx, { log: quietLog });
+  assert.deepEqual(env.state.poll("g1", "m1").dates, ["2026-03-10"]);
+  const none = component(env, { customId: "poll:dates:m1", values: ["__proto__"] });
+  await handleInteraction(none, env.ctx, { log: quietLog });
+  assert.match(last(none).content, /at least one date/);
+  assert.deepEqual(env.state.poll("g1", "m1").dates, ["2026-03-10"]);
+  const gone = component(env, { customId: "poll:dates:nope", values: ["2026-03-10"] });
+  await handleInteraction(gone, env.ctx, { log: quietLog });
+  assert.match(last(gone).content, /no longer active/);
+});
+
+test("setPollDates and editableDates", () => {
+  const poll = { dates: ["2026-02-20", "2026-03-05"], votes: { a: ["2026-02-20", "2026-03-05"], b: ["2026-02-20"] }, timezone: "Europe/Stockholm" };
+  const offered = editableDates(poll, NOW);
+  assert.equal(offered.length, 25);
+  assert.equal(offered[0], "2026-02-20", "a poll's own (even past) dates stay on offer");
+  assert.equal(new Set(offered).size, 25);
+  assert.deepEqual(setPollDates(poll, ["2026-03-05", "2026-03-04", "2026-03-04"]), { added: ["2026-03-04"], removed: ["2026-02-20"], droppedVotes: 2 });
+  assert.deepEqual(poll, { dates: ["2026-03-04", "2026-03-05"], votes: { a: ["2026-03-05"] }, timezone: "Europe/Stockholm" });
+  assert.throws(() => setPollDates(poll, []), /at least one/);
+  assert.throws(() => setPollDates(poll, upcomingDates(NOW, "UTC", 21)), /at most 20/);
 });

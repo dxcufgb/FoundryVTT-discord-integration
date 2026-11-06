@@ -2,14 +2,15 @@
 // candidate dates, the bot posts a poll tagging the DM and the players, and the
 // starter (or any DM/game master/administrator) decides: pick one of the dates
 // with the most votes, then a time, then (when the campaign has no default
-// voice channel) a voice channel or none. That creates a Discord scheduled event,
+// voice channel) a voice channel or none. Administrators, the DM and game masters
+// can also add or remove dates with "Edit dates" while the poll is open. That creates a Discord scheduled event,
 // announces it in the poll's channel and sets the campaign's next session (see
 // sessions.js for the 15-minute check). Poll state lives in state.js so it
 // survives restarts; the component handlers are routed from client.js.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionContextType, MessageFlags, ModalBuilder, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { createSession, mentionUser, NOT_DM_MESSAGE, zonedToUtc } from "../../campaigns.js";
-import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canManagePoll, canRunPoll, createPoll, dateLabel, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, setVotes, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../../polls.js";
+import { buildDecidedEmbed, buildPollEmbed, campaignMembers, canEditPollDates, canManagePoll, canRunPoll, createPoll, dateLabel, editableDates, MAX_POLL_DATES, NO_POLL_MESSAGE, NOT_POLL_MANAGER_MESSAGE, NOT_POLL_VOTER_MESSAGE, parseClock, pollComponents, setPollDates, setVotes, timeSlots, toggleAll, toggleVote, topDates, upcomingDates } from "../../polls.js";
 import { asSentence, explainError, isPermissionError, permissionProblem, POLL_PERMISSIONS, postPermissionsFor } from "../health.js";
 import { GUILD_ONLY_MESSAGE } from "../permissions.js";
 import { defaultVoiceQuestion, scheduleSessionEvent, voicePrompt } from "../sessionEvents.js";
@@ -66,6 +67,8 @@ export async function handlePollComponent(interaction, ctx) {
     case "vote": return vote(interaction, ctx, (p) => setVotes(p, interaction.user.id, interaction.values), { legacy: true }); // menu of polls posted before the buttons
     case "decide": return decide(interaction, ctx);
     case "delete": return deletePoll(interaction, ctx);
+    case "edit": return askDates(interaction, ctx);
+    case "dates": return editDates(interaction, ctx, rest[0]);
     case "date": return pickTime(interaction, ctx, rest[0]);
     case "time": return chooseLocation(interaction, ctx, rest[0], rest[1], parseClock(interaction.values[0]));
     case "custom": return askCustomTime(interaction, ctx, rest[0], rest[1]);
@@ -134,6 +137,69 @@ async function vote(interaction, ctx, change, { legacy = false } = {}) {
   const updated = ctx.state.updatePoll(interaction.guildId, poll.id, change);
   // Old polls keep their menu (they may have more dates than a button layout holds); new ones refresh the counts on the buttons.
   return interaction.update(legacy ? { embeds: [buildPollEmbed(updated, campaign, { menu: true })] } : { embeds: [buildPollEmbed(updated, campaign)], components: pollComponents(updated) });
+}
+
+// --- editing the dates ------------------------------------------------------------------
+
+const NOT_DATE_EDITOR_MESSAGE = "Only the campaign's DM, a game master or a server administrator can change the dates of a poll.";
+
+async function requireDateEditor(interaction, ctx, campaign) {
+  if (campaign && canEditPollDates(interaction, campaign, gmRoleOf(ctx, interaction.guildId))) return true;
+  await interaction.reply(ephemeral(campaign ? NOT_DATE_EDITOR_MESSAGE : "The campaign of this poll no longer exists."));
+  return false;
+}
+
+/** "Edit dates": a private menu with the poll's dates preselected and upcoming dates to add. */
+async function askDates(interaction, ctx) {
+  const { poll, campaign } = await loadPoll(interaction, ctx);
+  if (!poll || !(await requireDateEditor(interaction, ctx, campaign))) return undefined;
+  const now = (ctx.now ?? (() => new Date()))();
+  const offered = editableDates(poll, now);
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`poll:dates:${poll.id}`)
+    .setPlaceholder("Pick the dates to vote on")
+    .setMinValues(1)
+    .setMaxValues(Math.min(MAX_POLL_DATES, offered.length))
+    .addOptions(offered.map((d) => ({ label: dateLabel(d), value: d, default: poll.dates.includes(d) })));
+  return interaction.reply(
+    ephemeral(`Which dates should **${campaign.name}** vote on? Select dates to add them, deselect dates to remove them (at most ${MAX_POLL_DATES}; votes for removed dates are dropped). Dates are in ${poll.timezone}.`, {
+      components: [new ActionRowBuilder().addComponents(menu)],
+    }),
+  );
+}
+
+/** The new dates are picked: store them and refresh the poll message. */
+async function editDates(interaction, ctx, pollId) {
+  const { poll, campaign } = await loadPoll(interaction, ctx, pollId);
+  if (!poll || !(await requireDateEditor(interaction, ctx, campaign))) return undefined;
+  const offered = editableDates(poll, (ctx.now ?? (() => new Date()))());
+  const dates = (interaction.values ?? []).filter((d) => offered.includes(d) || poll.dates.includes(d));
+  if (!dates.length) return interaction.update({ content: "A poll needs at least one date.", components: [] });
+  if (dates.length > MAX_POLL_DATES) return interaction.update({ content: `A poll can have at most ${MAX_POLL_DATES} dates.`, components: [] });
+  let change;
+  const updated = ctx.state.updatePoll(interaction.guildId, poll.id, (p) => {
+    change = setPollDates(p, dates);
+  });
+  if (!updated) return interaction.update({ content: NO_POLL_MESSAGE, components: [] });
+
+  let messageError = null;
+  let channel = null;
+  try {
+    channel = interaction.channel?.id === updated.channelId ? interaction.channel : await ctx.client?.channels?.fetch(updated.channelId);
+    const message = await channel?.messages?.fetch(updated.id);
+    if (!message) throw new Error("the poll message is no longer available to the bot");
+    await message.edit({ embeds: [buildPollEmbed(updated, campaign)], components: pollComponents(updated), allowedMentions: { parse: [] } });
+  } catch (err) {
+    ctx.log?.warn?.("Could not update the poll message:", err?.message ?? err);
+    messageError = asSentence(isPermissionError(err) ? explainError(err, interaction.guild ?? channel?.guild, channel, POLL_PERMISSIONS) : err?.message ?? String(err));
+  }
+  const list = (ds) => ds.map(dateLabel).join(", ");
+  const parts = [];
+  if (change.added.length) parts.push(`added ${list(change.added)}`);
+  if (change.removed.length) parts.push(`removed ${list(change.removed)}`);
+  const summary = parts.length ? `✅ Dates updated: ${parts.join("; ")}.` : "No dates changed.";
+  const dropped = change.droppedVotes ? ` ${change.droppedVotes} vote${change.droppedVotes === 1 ? " was" : "s were"} dropped with the removed dates.` : "";
+  return interaction.update({ content: `${summary}${dropped}${messageError ? `\n⚠️ The poll message could not be updated: ${messageError}` : ""}`, components: [], allowedMentions: { parse: [] } });
 }
 
 // --- deleting ------------------------------------------------------------------------
