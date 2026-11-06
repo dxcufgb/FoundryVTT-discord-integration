@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-06
+
 ### Added
 
 - **Add or remove dates of an open planning poll.** A new **Edit dates** button under the poll lets the campaign's DM, members of the game master role (`/gm-role`) and server administrators change the candidate dates after the poll is posted: a private menu shows the poll's dates already selected next to the upcoming days. Votes for removed dates are dropped, and the poll message is updated without tagging anyone again.
@@ -193,7 +195,8 @@ First release, built for Foundry VTT v13.
 - Linux systemd installer and Windows Task Scheduler installer; release bundles for both platforms with dependencies included.
 - Test suite (Node's built-in test runner) and CI on Linux and Windows.
 
-[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.6...HEAD
+[Unreleased]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.6...v1.7.0
 [1.6.6]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.5...v1.6.6
 [1.6.5]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.4...v1.6.5
 [1.6.4]: https://github.com/dxcufgb/FoundryVTT-discord-integration/compare/v1.6.3...v1.6.4
