@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Add or remove dates of an open planning poll.** A new **Edit dates** button under the poll lets the campaign's DM, members of the game master role (`/gm-role`) and server administrators change the candidate dates after the poll is posted: a private menu shows the poll's dates already selected next to the upcoming days. Votes for removed dates are dropped, and the poll message is updated without tagging anyone again.
+
 ## [1.6.6] - 2026-11-02
 
 ### Changed

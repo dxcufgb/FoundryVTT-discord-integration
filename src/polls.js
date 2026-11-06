@@ -7,8 +7,10 @@ import { localParts } from "./restartWindow.js";
 import { mentionUser } from "./campaigns.js";
 import { own, put, remove } from "./state.js";
 
-/** A message holds 5 rows of 5 buttons: 4 rows of dates and a row for Toggle all / Decide date / Delete poll. */
+/** A message holds 5 rows of 5 buttons: 4 rows of dates and a row for Toggle all / Decide date / Edit dates / Delete poll. */
 export const MAX_POLL_DATES = 20;
+/** A select menu holds at most 25 options. */
+export const MAX_MENU_OPTIONS = 25;
 export const SESSION_DURATION_MS = 3 * 3600_000;
 export const NOT_POLL_MANAGER_MESSAGE = "Only the person who created the poll, the campaign's DM, a game master or a server administrator can do that.";
 export const NOT_POLL_VOTER_MESSAGE = "Only the DM and the players of this campaign can vote.";
@@ -52,6 +54,35 @@ export function createPoll({ id, channelId, campaign, dates, createdBy, timezone
   if (!unique.length) throw new Error("A poll needs at least one date");
   if (unique.length > MAX_POLL_DATES) throw new Error(`A poll can have at most ${MAX_POLL_DATES} dates`);
   return { id: String(id), channelId: String(channelId), campaignId: campaign.id, campaignName: campaign.name, dates: unique, votes: {}, createdBy: String(createdBy), createdAt: now().toISOString(), timezone };
+}
+
+/** Replace a poll's dates. Votes for dates no longer on offer are dropped. Returns { added, removed, droppedVotes }. */
+export function setPollDates(poll, dates) {
+  const unique = [...new Set(dates)].sort();
+  if (!unique.length) throw new Error("A poll needs at least one date");
+  if (unique.length > MAX_POLL_DATES) throw new Error(`A poll can have at most ${MAX_POLL_DATES} dates`);
+  const added = unique.filter((d) => !poll.dates.includes(d));
+  const removed = poll.dates.filter((d) => !unique.includes(d));
+  let droppedVotes = 0;
+  for (const userId of Object.keys(poll.votes)) {
+    const current = own(poll.votes, userId) ?? [];
+    const kept = current.filter((d) => unique.includes(d));
+    droppedVotes += current.length - kept.length;
+    if (kept.length) put(poll.votes, userId, kept);
+    else remove(poll.votes, userId);
+  }
+  poll.dates = unique;
+  return { added, removed, droppedVotes };
+}
+
+/** The dates to offer when editing a poll: all of its own dates, then upcoming ones, at most 25, in date order. */
+export function editableDates(poll, now, timezone = poll.timezone) {
+  const out = [...poll.dates];
+  for (const d of upcomingDates(now, timezone, MAX_MENU_OPTIONS)) {
+    if (out.length >= MAX_MENU_OPTIONS) break;
+    if (!out.includes(d)) out.push(d);
+  }
+  return out.sort();
 }
 
 /** Replace one user's votes (an empty list withdraws them). */
@@ -105,6 +136,9 @@ export function canRunPoll(interaction, campaign, gmRole) {
   return Boolean(userId && (String(userId) === String(campaign?.dm) || hasGmRole(interaction, gmRole)));
 }
 
+/** Who may add or remove a poll's dates: administrators, the campaign's DM and the server's game masters. */
+export const canEditPollDates = (interaction, campaign, gmRole) => canRunPoll(interaction, campaign, gmRole);
+
 /** Who may decide or delete a poll: its creator, or anyone who could have started it. */
 export function canManagePoll(interaction, poll, campaign, gmRole) {
   const userId = interaction?.user?.id ?? null;
@@ -142,6 +176,7 @@ export function pollComponents(poll) {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("poll:all").setLabel("Toggle all dates").setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId("poll:decide").setLabel("Decide date").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("poll:edit").setLabel("Edit dates").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId("poll:delete").setLabel("Delete poll").setStyle(ButtonStyle.Danger),
     ),
   );
